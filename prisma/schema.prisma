@@ -1,0 +1,80 @@
+// Prisma schema — Monitoring Kepulangan Jamaah Haji
+// Pendekatan Biopsikososial Spiritual Kedokteran Keluarga
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Data dasar jamaah haji
+model Jamaah {
+  id        String   @id @default(cuid())
+  nama      String
+  nik       String   @unique
+  kloter    String
+  porsi     String
+  usia      Int
+  kelamin   String // L | P
+  alamat    String
+  hp        String
+  kontakKeluarga String
+
+  // Data kepulangan
+  tanggalTiba     DateTime
+  bandara         String
+  kabupatenKota   String
+  puskesmas       String
+  dokterKeluarga  String
+
+  // Risiko hasil agregat (dihitung ulang tiap skrining)
+  riskLevel String @default("HIJAU") // HIJAU | KUNING | MERAH
+  riskSummary String @default("")
+
+  screenings  Screening[]
+  vitalSigns  VitalSign[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Skrining fleksibel — menyimpan semua 14 modul skrining
+// jenis: INFECTIOUS | CHRONIC | FRAILTY | FALL_RISK | NUTRITION |
+//        MENTAL | SLEEP | ACTIVITY | SPIRITUAL | FAMILY_APGAR | FOLLOWUP
+model Screening {
+  id        String   @id @default(cuid())
+  jamaahId  String
+  jamaah    Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
+  jenis     String
+  data      String   // JSON string: jawaban skrining spesifik per jenis
+  skor      String?  // hasil/skor terhitung (mis. "Robust", "Tinggi", angka PHQ-9)
+  catatan   String?
+  hariKe    Int      @default(1) // hari monitoring ke- (1/7/14/30)
+  createdAt DateTime @default(now())
+
+  @@index([jamaahId, jenis])
+  @@index([jenis, hariKe])
+}
+
+// Tanda vital berkala dengan tren grafik otomatis
+model VitalSign {
+  id         String   @id @default(cuid())
+  jamaahId   String
+  jamaah     Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
+  tdSistolik Int?
+  tdDiastolik Int?
+  nadi       Int?
+  rr         Int?
+  suhu       Float?
+  spo2       Float?
+  beratBadan Float?
+  gulaDarah  Float?
+  hariKe     Int      @default(1)
+  catatan    String?
+  createdAt  DateTime @default(now())
+
+  @@index([jamaahId, hariKe])
+}
