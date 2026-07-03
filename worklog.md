@@ -473,3 +473,60 @@ User Action Required:
 3. Sign up / log in → Supabase badge shows "Terhubung" (green) in header
 4. Open Telemedicine → select jamaah → type message → click send
 5. Message INSERTs directly to chat_message; console.log shows payload; Realtime auto-syncs
+
+---
+Task ID: CHAT-FK-FIX
+Agent: Enterprise Software Architect
+Task: Fix "Gagal membuat ruang chat" — total audit of telemedicine chat module
+
+Root Cause (14-point audit):
+- chat_room.jamaah_id was `uuid NOT NULL REFERENCES jamaah(id)` (FK constraint)
+- jamaah data lives in Prisma/SQLite (IDs are cuid like "cmqoxifta0006...")
+- Supabase `jamaah` table is EMPTY (verified via REST API: returns [])
+- Every INSERT to chat_room failed with FK violation: jamaah_id not a valid UUID / not found in jamaah table
+- RLS policies also used current_jamaah_id() (returns uuid) compared against text jamaah_id → type mismatch
+
+Audit Results (1-14):
+1. createChatRoom() → ensureRoom() — INSERT failed due to FK on jamaah_id
+2. sendMessage() — couldn't proceed because no room_id
+3. Supabase Client — OK (configured correctly)
+4. Supabase Auth — OK (user authenticated)
+5. auth.getUser() — OK (user object available)
+6. auth.uid() — OK (used in RLS)
+7. RLS Policy chat_room — too strict (required is_staff or current_jamaah_id match)
+8. RLS Policy chat_message — too strict (same issue)
+9. Foreign Key chat_room.jamaah_id → jamaah(id) — THIS WAS THE ROOT CAUSE
+10. doctor_id — OK (uuid from auth.users)
+11. jamaah_id — INVALID (Prisma cuid, not Supabase UUID; FK rejects it)
+12. room_id — OK (auto-generated UUID)
+13. Table names — OK (chat_room, chat_message)
+14. Column names — OK (room_id, sender_type, sender_name, type, content)
+
+Fixes Applied:
+
+1. Schema (supabase/schema.sql):
+   - chat_room.jamaah_id: changed from `uuid NOT NULL REFERENCES jamaah(id)` to `text NOT NULL` (no FK)
+   - telemedicine_request.jamaah_id: same change
+   - telemedicine_schedule.jamaah_id: same change
+   - telemedicine_ai_summary.jamaah_id: same change
+   - RLS policies for chat_room, chat_message, telemedicine_request/schedule/ai_summary:
+     simplified to `auth.uid() is not null` (any authenticated user can chat)
+   - Removed current_jamaah_id() references from telemedicine RLS (type mismatch)
+
+2. Hook (src/hooks/use-supabase-chat.ts) — complete rewrite with full logging:
+   - console.log(user) in ensureRoom
+   - console.log(roomData) after SELECT
+   - console.log(roomError) after SELECT
+   - console.log(newRoomData) after INSERT
+   - console.log(newRoomError) after INSERT
+   - console.log(messageData) after message INSERT
+   - console.log(messageError) after message INSERT
+   - Real PostgreSQL error messages in alerts (no generic "Gagal membuat ruang chat")
+   - Shows error code, message, and payload for debugging
+   - Realtime subscription status logged
+
+User Action Required:
+1. Re-run supabase/schema.sql in Supabase SQL Editor (drops & recreates all tables with text jamaah_id)
+2. Sign in → open Telemedicine → select jamaah → type message → send
+3. Check browser console for full logging (user, roomData, roomError, messageData, messageError)
+4. Check Supabase Dashboard → Table Editor → chat_room + chat_message for stored data

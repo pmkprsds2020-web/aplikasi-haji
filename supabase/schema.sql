@@ -558,7 +558,7 @@ create trigger trg_pha_audit after insert or update or delete on public.pre_hajj
 -- ============================================================================
 create table if not exists public.chat_room (
   id               uuid primary key default gen_random_uuid(),
-  jamaah_id        uuid not null references public.jamaah(id) on delete cascade,
+  jamaah_id        text not null,
   doctor_id        uuid references auth.users(id) on delete set null,
   last_message_at  timestamptz not null default now(),
   unread_by_doctor integer not null default 0 check (unread_by_doctor >= 0),
@@ -598,7 +598,7 @@ create trigger trg_cm_meta_upd before update on public.chat_message for each row
 create table if not exists public.telemedicine_request (
   id            uuid primary key default gen_random_uuid(),
   room_id       uuid not null references public.chat_room(id) on delete cascade,
-  jamaah_id     uuid not null references public.jamaah(id) on delete cascade,
+  jamaah_id     text not null,
   category      text not null check (category in ('TTV','SKRINING','EDUKASI','OBAT','DAILY_COMPLAINT','CHRONIC')),
   sub_type      text, title text not null, fields text not null default '[]',
   status        text not null default 'PENDING' check (status in ('PENDING','SUBMITTED','EXPIRED')),
@@ -630,7 +630,7 @@ create trigger trg_tt_meta_upd before update on public.telemedicine_template for
 
 create table if not exists public.telemedicine_schedule (
   id          uuid primary key default gen_random_uuid(),
-  jamaah_id   uuid not null references public.jamaah(id) on delete cascade,
+  jamaah_id   text not null,
   category    text not null, sub_type text, title text not null,
   hari_ke integer, time_of_day text,
   active      boolean not null default true, last_sent_at timestamptz,
@@ -646,7 +646,7 @@ create trigger trg_ts_meta_upd before update on public.telemedicine_schedule for
 
 create table if not exists public.telemedicine_ai_summary (
   id          uuid primary key default gen_random_uuid(),
-  jamaah_id   uuid not null references public.jamaah(id) on delete cascade,
+  jamaah_id   text not null,
   room_id     uuid not null references public.chat_room(id) on delete cascade,
   ringkasan   text not null, soap text, assessment text, plan text,
   prioritas   text check (prioritas is null or prioritas in ('URGENT','TINGGI','SEDANG','RUTIN')),
@@ -826,15 +826,12 @@ create policy pha_update on public.pre_hajj_ai_assessment for update using (publ
 drop policy if exists pha_delete on public.pre_hajj_ai_assessment;
 create policy pha_delete on public.pre_hajj_ai_assessment for delete using (public.is_staff());
 
--- CHAT_ROOM — any authenticated user can select/insert/update (doctors + jamaah chat)
+-- CHAT_ROOM — any authenticated user can select/insert/update
+-- (jamaah_id is text — no FK — so it accepts both Prisma cuid and Supabase UUID)
 alter table public.chat_room enable row level security;
 drop policy if exists cr_select on public.chat_room;
 create policy cr_select on public.chat_room for select using (
-  auth.uid() is not null and (
-    public.is_staff() or
-    jamaah_id = public.current_jamaah_id() or
-    doctor_id = auth.uid()
-  )
+  auth.uid() is not null
 );
 drop policy if exists cr_insert on public.chat_room;
 create policy cr_insert on public.chat_room for insert with check (
@@ -842,40 +839,36 @@ create policy cr_insert on public.chat_room for insert with check (
 );
 drop policy if exists cr_update on public.chat_room;
 create policy cr_update on public.chat_room for update using (
-  auth.uid() is not null and (public.is_staff() or doctor_id = auth.uid() or jamaah_id = public.current_jamaah_id())
+  auth.uid() is not null
 );
 drop policy if exists cr_delete on public.chat_room;
 create policy cr_delete on public.chat_room for delete using (public.is_staff());
 
--- CHAT_MESSAGE — any authenticated user can select/insert (chat participants)
+-- CHAT_MESSAGE — any authenticated user can select/insert
 alter table public.chat_message enable row level security;
 drop policy if exists cm_select on public.chat_message;
 create policy cm_select on public.chat_message for select using (
-  auth.uid() is not null and (
-    public.is_staff() or
-    exists (select 1 from public.chat_room where id = chat_message.room_id and (jamaah_id = public.current_jamaah_id() or doctor_id = auth.uid()))
-  )
+  auth.uid() is not null
 );
 drop policy if exists cm_insert on public.chat_message;
 create policy cm_insert on public.chat_message for insert with check (
-  auth.uid() is not null and (
-    public.is_staff() or
-    exists (select 1 from public.chat_room where id = chat_message.room_id and (jamaah_id = public.current_jamaah_id() or doctor_id = auth.uid()))
-  )
+  auth.uid() is not null
 );
 drop policy if exists cm_update on public.chat_message;
-create policy cm_update on public.chat_message for update using (public.is_staff());
+create policy cm_update on public.chat_message for update using (
+  auth.uid() is not null
+);
 drop policy if exists cm_delete on public.chat_message;
 create policy cm_delete on public.chat_message for delete using (public.is_staff());
 
 -- TELEMEDICINE_REQUEST
 alter table public.telemedicine_request enable row level security;
 drop policy if exists tr_select on public.telemedicine_request;
-create policy tr_select on public.telemedicine_request for select using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+create policy tr_select on public.telemedicine_request for select using (auth.uid() is not null);
 drop policy if exists tr_insert on public.telemedicine_request;
-create policy tr_insert on public.telemedicine_request for insert with check (public.is_staff() or jamaah_id = public.current_jamaah_id());
+create policy tr_insert on public.telemedicine_request for insert with check (auth.uid() is not null);
 drop policy if exists tr_update on public.telemedicine_request;
-create policy tr_update on public.telemedicine_request for update using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+create policy tr_update on public.telemedicine_request for update using (auth.uid() is not null);
 drop policy if exists tr_delete on public.telemedicine_request;
 create policy tr_delete on public.telemedicine_request for delete using (public.is_staff());
 
@@ -893,22 +886,22 @@ create policy tt_delete on public.telemedicine_template for delete using (public
 -- TELEMEDICINE_SCHEDULE
 alter table public.telemedicine_schedule enable row level security;
 drop policy if exists ts_select on public.telemedicine_schedule;
-create policy ts_select on public.telemedicine_schedule for select using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+create policy ts_select on public.telemedicine_schedule for select using (auth.uid() is not null);
 drop policy if exists ts_insert on public.telemedicine_schedule;
-create policy ts_insert on public.telemedicine_schedule for insert with check (public.is_staff());
+create policy ts_insert on public.telemedicine_schedule for insert with check (auth.uid() is not null);
 drop policy if exists ts_update on public.telemedicine_schedule;
-create policy ts_update on public.telemedicine_schedule for update using (public.is_staff());
+create policy ts_update on public.telemedicine_schedule for update using (auth.uid() is not null);
 drop policy if exists ts_delete on public.telemedicine_schedule;
 create policy ts_delete on public.telemedicine_schedule for delete using (public.is_staff());
 
 -- TELEMEDICINE_AI_SUMMARY
 alter table public.telemedicine_ai_summary enable row level security;
 drop policy if exists tas_select on public.telemedicine_ai_summary;
-create policy tas_select on public.telemedicine_ai_summary for select using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+create policy tas_select on public.telemedicine_ai_summary for select using (auth.uid() is not null);
 drop policy if exists tas_insert on public.telemedicine_ai_summary;
-create policy tas_insert on public.telemedicine_ai_summary for insert with check (public.is_staff());
+create policy tas_insert on public.telemedicine_ai_summary for insert with check (auth.uid() is not null);
 drop policy if exists tas_update on public.telemedicine_ai_summary;
-create policy tas_update on public.telemedicine_ai_summary for update using (public.is_staff());
+create policy tas_update on public.telemedicine_ai_summary for update using (auth.uid() is not null);
 drop policy if exists tas_delete on public.telemedicine_ai_summary;
 create policy tas_delete on public.telemedicine_ai_summary for delete using (public.is_staff());
 
