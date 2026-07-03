@@ -16,7 +16,9 @@
 --   • Soft delete via deleted_at + is_active (Chapter 3)
 --
 -- Run in: Supabase Dashboard → SQL Editor → paste → Run
--- Idempotent: safe to re-run.
+-- Idempotent: safe to re-run. NOTE: re-running DROPS all existing tables
+-- and recreates them (data is reset). This guarantees a clean schema even
+-- after prior failed runs that left partial tables.
 -- ============================================================================
 
 -- ---------- Extensions ----------
@@ -26,14 +28,13 @@ create extension if not exists "pgcrypto";
 drop type if exists public.user_role cascade;
 
 -- ============================================================================
--- 0. HELPER FUNCTIONS
+-- 0a. CLEAN SLATE — drop all existing objects so re-runs rebuild correctly.
 -- ============================================================================
--- NOTE: Functions that reference tables (is_staff, is_super_admin,
--- current_jamaah_id) are defined AFTER those tables are created, because
--- LANGUAGE sql functions validate their queries at creation time.
--- The generic meta/audit functions (which don't reference specific tables
--- at parse time — they use TG_* variables) are defined after audit_log.
--- We DROP all functions first so re-runs cleanly recreate them.
+-- IMPORTANT: Prior failed runs may have left partial tables (e.g. jamaah
+-- without the is_active column). CREATE TABLE IF NOT EXISTS will NOT add
+-- missing columns to an existing table, so we must drop everything first
+-- to guarantee a clean rebuild with the full correct schema every time.
+-- All data is lost on re-run — this is expected during schema setup.
 
 drop function if exists public.is_staff() cascade;
 drop function if exists public.is_super_admin() cascade;
@@ -43,9 +44,36 @@ drop function if exists public.set_meta_on_insert() cascade;
 drop function if exists public.set_meta_on_update() cascade;
 drop function if exists public.log_audit() cascade;
 
--- is_staff(), is_super_admin(), current_jamaah_id() are defined later,
--- after the profiles and jamaah tables exist. See "TABLE-DEPENDENT
--- HELPER FUNCTIONS" section below.
+drop table if exists public.telemedicine_ai_summary cascade;
+drop table if exists public.telemedicine_schedule cascade;
+drop table if exists public.telemedicine_template cascade;
+drop table if exists public.telemedicine_request cascade;
+drop table if exists public.chat_message cascade;
+drop table if exists public.chat_room cascade;
+drop table if exists public.pre_hajj_ai_assessment cascade;
+drop table if exists public.pre_hajj_education cascade;
+drop table if exists public.pre_hajj_fitness cascade;
+drop table if exists public.pre_hajj_immunization cascade;
+drop table if exists public.pre_hajj_medication cascade;
+drop table if exists public.pre_hajj_screening cascade;
+drop table if exists public.pre_hajj_chronic cascade;
+drop table if exists public.pre_hajj_lab cascade;
+drop table if exists public.pre_hajj_vital cascade;
+drop table if exists public.vital_sign cascade;
+drop table if exists public.screening cascade;
+drop table if exists public.jamaah cascade;
+drop table if exists public.audit_log cascade;
+drop table if exists public.profiles cascade;
+
+-- ============================================================================
+-- 0b. HELPER FUNCTIONS
+-- ============================================================================
+-- NOTE: Functions that reference tables (is_staff, is_super_admin,
+-- current_jamaah_id) are defined AFTER those tables are created, because
+-- LANGUAGE sql functions validate their queries at creation time.
+-- The generic meta/audit functions (which don't reference specific tables
+-- at parse time — they use TG_* variables) are defined after audit_log.
+-- All functions were DROPped above; they are CREATEd in the correct order below.
 
 -- ============================================================================
 -- 1. PROFILES (linked to auth.users) — multi-role
