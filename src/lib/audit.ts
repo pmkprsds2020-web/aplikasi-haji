@@ -45,10 +45,19 @@ export async function logAudit(entry: AuditEntry): Promise<void> {
       reason: entry.reason ?? null,
     } as never);
     if (error) {
-      console.error("[audit] Failed to write audit log:", error.message);
+      // Suppress "schema cache" / "relation does not exist" errors silently —
+      // these occur when the SQL schema hasn't been applied yet. Only surface
+      // genuine unexpected errors at debug level.
+      const msg = error.message || "";
+      const isMissingTable =
+        msg.includes("schema cache") ||
+        msg.includes("does not exist") ||
+        msg.includes("Could not find the table");
+      if (!isMissingTable) {
+        console.debug("[audit] insert failed:", msg);
+      }
     }
-  } catch (err) {
-    // Audit logging must never break the main operation.
-    console.error("[audit] Unexpected error:", err);
+  } catch {
+    // Swallow all errors — audit logging must never break the main operation.
   }
 }
