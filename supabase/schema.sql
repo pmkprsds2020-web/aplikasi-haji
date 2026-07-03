@@ -13,17 +13,16 @@
 -- ---------- Extensions ----------
 create extension if not exists "pgcrypto";   -- for gen_random_uuid()
 
--- ---------- ENUM for user roles ----------
-do $$ begin
-  create type user_role as enum ('doctor', 'admin', 'jamaah');
-exception when duplicate_object then null; end $$;
+-- ---------- Clean up any conflicting enum from prior runs ----------
+-- (Supabase may have a built-in `user_role` type; we use text + CHECK instead.)
+drop type if exists public.user_role cascade;
 
 -- ============================================================================
 -- 1. PROFILES (linked to auth.users)
 -- ============================================================================
 create table if not exists public.profiles (
   id          uuid primary key references auth.users(id) on delete cascade,
-  role        user_role not null default 'doctor',
+  role        text not null default 'doctor' check (role in ('doctor','admin','jamaah')),
   full_name   text,
   email       text,
   created_at  timestamptz not null default now()
@@ -35,13 +34,20 @@ returns trigger
 language plpgsql
 security definer set search_path = public
 as $$
+declare
+  v_role text;
 begin
+  v_role := coalesce(new.raw_user_meta_data->>'role', 'doctor');
+  -- Guard: only allow known roles
+  if v_role not in ('doctor','admin','jamaah') then
+    v_role := 'doctor';
+  end if;
   insert into public.profiles (id, email, full_name, role)
   values (
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data->>'full_name', new.email),
-    coalesce((new.raw_user_meta_data->>'role')::user_role, 'doctor')
+    v_role
   )
   on conflict (id) do nothing;
   return new;
