@@ -21,6 +21,7 @@ import {
 } from "@/lib/telemedicine-types";
 import { DEFAULT_TEMPLATES } from "@/lib/telemedicine-types";
 import { useTelemedicineSocket } from "./use-telemedicine-socket";
+import { useSupabaseChat } from "@/hooks/use-supabase-chat";
 import { formatTanggalWaktu, initials, RISK_STYLE } from "@/lib/format";
 import type { JamaahData } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -68,13 +69,43 @@ const TYPE_ICON: Partial<Record<ChatMessageType, LucideIcon>> = {
 export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Props) {
   const { isConnected, onlineMap, typingMap, joinRoom, leaveRoom, setTyping, announcePresence, onMessage, onAlert, onRequest, onResponse } = useTelemedicineSocket();
 
-  const [room, setRoom] = React.useState<RoomData | null>(null);
-  const [messages, setMessages] = React.useState<ChatMessageData[]>([]);
+  // ===== SUPABASE-DIRECT CHAT (single source of truth) =====
+  // Messages are fetched via supabase.from('chat_message').select() and
+  // sent via supabase.from('chat_message').insert(). Supabase Realtime
+  // auto-syncs new messages. Local state is a mirror only — never the
+  // primary store.
+  const {
+    roomId,
+    messages: supabaseMessages,
+    loading,
+    sending,
+    sendMessage: supabaseSend,
+    refresh: refreshMessages,
+  } = useSupabaseChat(jamaahId);
+
+  // Map Supabase rows (snake_case) to the ChatMessageData shape the UI expects
+  const messages: ChatMessageData[] = React.useMemo(
+    () =>
+      supabaseMessages.map((m) => ({
+        id: m.id,
+        roomId: m.room_id,
+        senderType: m.sender_type as ChatSenderType,
+        senderName: m.sender_name,
+        type: m.type as ChatMessageType,
+        content: m.content,
+        attachmentUrl: m.attachment_url,
+        attachmentName: m.attachment_name,
+        requestId: m.request_id,
+        readByDoctor: m.read_by_doctor,
+        readByJamaah: m.read_by_jamaah,
+        createdAt: m.created_at,
+      })),
+    [supabaseMessages]
+  );
+
   const [requests, setRequests] = React.useState<TelemedicineRequestData[]>([]);
   const [jamaah, setJamaah] = React.useState<JamaahData | null>(jamaahProp);
-  const [loading, setLoading] = React.useState(true);
   const [input, setInput] = React.useState("");
-  const [sending, setSending] = React.useState(false);
   const [infoOpen, setInfoOpen] = React.useState(false);
 
   // Dialogs
@@ -96,24 +127,16 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
   const typingDebounce = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingNow = React.useRef(false);
 
-  // ===== Load room =====
+  // ===== Load room (still fetch requests from API; messages come from Supabase hook) =====
   const load = React.useCallback(async () => {
-    setLoading(true);
     try {
       const res = await fetch(`/api/telemedicine/rooms/${jamaahId}`, { cache: "no-store" });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error ?? `HTTP ${res.status}`);
-      }
+      if (!res.ok) return;
       const data = (await res.json()) as RoomData;
-      setRoom(data);
-      setMessages(data.messages ?? []);
       setRequests(data.requests ?? []);
       setJamaah(data.jamaah ?? jamaahProp);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal memuat percakapan");
-    } finally {
-      setLoading(false);
+    } catch {
+      // Non-critical — messages are handled by Supabase hook
     }
   }, [jamaahId, jamaahProp]);
 
@@ -121,8 +144,6 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
     load();
     joinRoom(jamaahId);
     announcePresence(jamaahId, "DOCTOR");
-    // Mark read
-    fetch(`/api/telemedicine/rooms/${jamaahId}/read`, { method: "POST" }).catch(() => {});
 
     return () => {
       leaveRoom(jamaahId);
@@ -130,22 +151,19 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
     };
   }, [jamaahId]);
 
-  // ===== Realtime handlers =====
+  // ===== Realtime handlers (socket.io for presence/typing/alerts) =====
+  // NOTE: Message realtime is handled by Supabase Realtime in useSupabaseChat.
+  // The socket.io onMessage handler is kept for backward compat but messages
+  // are already synced via Supabase — dedup by id prevents duplicates.
   React.useEffect(() => {
     const off = onMessage((p) => {
       const m = p.message;
-      if (!m || m.roomId !== getRoomId(room)) return;
-      setMessages((prev) => {
-        if (prev.some((x) => x.id === m.id)) return prev;
-        return [...prev, m];
-      });
-      // Mark read immediately since doctor is in the room
-      if (m.senderType !== "DOCTOR") {
-        fetch(`/api/telemedicine/rooms/${jamaahId}/read`, { method: "POST" }).catch(() => {});
-      }
+      if (!m || m.roomId !== roomId) return;
+      // Supabase Realtime already added this message; refresh to be safe.
+      refreshMessages();
     });
     return off;
-  }, [onMessage, getRoomId, room, jamaahId]);
+  }, [onMessage, roomId, refreshMessages]);
 
   React.useEffect(() => {
     const off = onAlert((p) => {
@@ -208,70 +226,41 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
     }
   };
 
-  // ===== Send text =====
+  // ===== Send text via Supabase INSERT =====
   async function sendText(content?: string) {
     const text = (content ?? input).trim();
     if (!text) return;
-    setSending(true);
     stopTyping();
-    try {
-      const res = await fetch(`/api/telemedicine/rooms/${jamaahId}/message`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "TEXT", content: text }),
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error ?? "Gagal mengirim pesan");
-      }
-      const data = await res.json();
-      if (data.message) {
-        setMessages((prev) => [...prev, data.message as ChatMessageData]);
-      }
+    const inserted = await supabaseSend({
+      senderType: "DOCTOR",
+      type: "TEXT",
+      content: text,
+    });
+    if (inserted) {
       setInput("");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal mengirim");
-    } finally {
-      setSending(false);
+      toast.success("Pesan terkirim");
     }
   }
 
-  // ===== Send attachment placeholder =====
+  // ===== Send attachment placeholder via Supabase INSERT =====
   async function sendAttachment(type: ChatMessageType, content: string) {
-    setSending(true);
-    try {
-      const res = await fetch(`/api/telemedicine/rooms/${jamaahId}/message`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, content, attachmentName: `placeholder-${type.toLowerCase()}.bin` }),
-      });
-      if (!res.ok) throw new Error("Gagal mengirim lampiran");
-      const data = await res.json();
-      if (data.message) setMessages((prev) => [...prev, data.message as ChatMessageData]);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal mengirim");
-    } finally {
-      setSending(false);
-    }
+    await supabaseSend({
+      senderType: "DOCTOR",
+      type,
+      content,
+      attachmentName: `placeholder-${type.toLowerCase()}.bin`,
+    });
   }
 
-  // ===== Send template =====
+  // ===== Send template via Supabase INSERT =====
   async function sendTemplate(t: { title: string; content: string }) {
-    setSending(true);
-    try {
-      const res = await fetch(`/api/telemedicine/rooms/${jamaahId}/message`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "TEMPLATE", content: t.content }),
-      });
-      if (!res.ok) throw new Error("Gagal mengirim template");
-      const data = await res.json();
-      if (data.message) setMessages((prev) => [...prev, data.message as ChatMessageData]);
+    const inserted = await supabaseSend({
+      senderType: "DOCTOR",
+      type: "TEMPLATE",
+      content: t.content,
+    });
+    if (inserted) {
       setTemplateOpen(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal mengirim");
-    } finally {
-      setSending(false);
     }
   }
 

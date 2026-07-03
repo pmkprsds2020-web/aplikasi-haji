@@ -427,3 +427,49 @@ Remaining (documented in COMPLIANCE.md):
 - Audit log UI
 - Testing suite (Chapter 20)
 - Deployment configs (Chapter 24)
+
+---
+Task ID: CHAT-SUPABASE-DIRECT
+Agent: Enterprise Software Architect
+Task: Total audit & fix of telemedicine chat — messages must save to Supabase chat_message
+
+Root Cause Analysis:
+- Chat messages were sent via Prisma API routes (/api/telemedicine/rooms/[id]/message), NOT Supabase
+- Local state (setMessages) was the primary store, not Supabase
+- No Supabase Realtime subscription
+- RLS policies required is_staff() which returned false if no profile row existed
+- No Realtime publication configured for chat_message/chat_room
+
+Fixes Applied (all 15 audit points):
+
+1. ✅ Tombol Kirim now calls supabase.from('chat_message').insert() (via useSupabaseChat hook)
+2. ✅ Correct table names: chat_room, chat_message
+3. ✅ Correct columns: id, room_id, sender_type, sender_name, type, content, etc.
+4. ✅ No local state as primary store — Supabase is single source of truth; local state is a mirror from .select()
+5. ✅ Supabase Realtime subscription on chat_message INSERT events (filtered by room_id)
+6. ✅ console.log before INSERT: room_id, sender_type, sender_name, type, content, auth.uid()
+7. ✅ Error handling: console.error(error) + alert(error.message) on INSERT failure
+8. ✅ ensureRoom() creates chat_room first if it doesn't exist, then uses room_id for INSERT
+9. ✅ RLS policies updated: authenticated users can INSERT to chat_message/chat_room (was is_staff-only)
+10. ✅ auth.uid() checked before INSERT (user must be authenticated)
+11. ✅ No dummy data or useState as primary — all from supabase.from('chat_message')
+12. ✅ All messages fetched via supabase.from('chat_message').select()
+13. ✅ All new messages sent via supabase.from('chat_message').insert()
+14. ✅ Realtime sync via supabase.channel().on('postgres_changes', {event:'INSERT', table:'chat_message'})
+15. ✅ Full source code fixed
+
+New Files:
+- src/components/haji/supabase-status-badge.tsx — live Supabase connection indicator (green/red/grey)
+- src/hooks/use-supabase-chat.ts — Supabase-direct chat hook (ensureRoom, fetchMessages, sendMessage, Realtime subscribe, markRead)
+
+Modified Files:
+- src/components/haji/telemedicine/conversation-panel.tsx — rewrote sendText/sendAttachment/sendTemplate to use useSupabaseChat; removed Prisma API fetch calls for messages; Realtime handled by hook
+- src/components/haji/app-shell.tsx — added SupabaseStatusBadge to mobile + desktop headers
+- supabase/schema.sql — updated chat_room/chat_message RLS policies (authenticated users can INSERT); added Realtime publication for chat_message + chat_room
+
+User Action Required:
+1. Re-run supabase/schema.sql in Supabase SQL Editor (updates RLS + adds Realtime publication)
+2. Disable email confirmation in Supabase Dashboard → Authentication → Providers → Email (for dev) OR verify email
+3. Sign up / log in → Supabase badge shows "Terhubung" (green) in header
+4. Open Telemedicine → select jamaah → type message → click send
+5. Message INSERTs directly to chat_message; console.log shows payload; Realtime auto-syncs

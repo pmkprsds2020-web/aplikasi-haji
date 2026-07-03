@@ -18,6 +18,7 @@ import { AiView } from "./ai-view";
 import { TelemedicineView } from "./telemedicine/telemedicine-view";
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
 import { LoginScreen } from "./login-screen";
+import { SupabaseStatusBadge } from "./supabase-status-badge";
 
 const NAV: { view: ViewName; label: string; icon: LucideIcon; desc: string }[] = [
   { view: "dashboard", label: "Dashboard", icon: LayoutDashboard, desc: "Ringkasan & risiko" },
@@ -66,6 +67,7 @@ export function AppShell() {
               <span className="text-sm font-bold">SiHaji Care</span>
             </div>
             <div className="flex items-center gap-1.5">
+              <SupabaseStatusBadge compact />
               <ThemeToggle />
               <UserChip user={user} role={role} onSignOut={signOut} compact />
             </div>
@@ -79,6 +81,7 @@ export function AppShell() {
               </h2>
             </div>
             <div className="flex items-center gap-2">
+              <SupabaseStatusBadge />
               <UserChip user={user} role={role} onSignOut={signOut} />
               <ThemeToggle />
             </div>

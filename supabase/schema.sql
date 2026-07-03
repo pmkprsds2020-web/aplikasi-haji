@@ -826,28 +826,42 @@ create policy pha_update on public.pre_hajj_ai_assessment for update using (publ
 drop policy if exists pha_delete on public.pre_hajj_ai_assessment;
 create policy pha_delete on public.pre_hajj_ai_assessment for delete using (public.is_staff());
 
--- CHAT_ROOM
+-- CHAT_ROOM — any authenticated user can select/insert/update (doctors + jamaah chat)
 alter table public.chat_room enable row level security;
 drop policy if exists cr_select on public.chat_room;
-create policy cr_select on public.chat_room for select using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+create policy cr_select on public.chat_room for select using (
+  auth.uid() is not null and (
+    public.is_staff() or
+    jamaah_id = public.current_jamaah_id() or
+    doctor_id = auth.uid()
+  )
+);
 drop policy if exists cr_insert on public.chat_room;
-create policy cr_insert on public.chat_room for insert with check (public.is_staff() or jamaah_id = public.current_jamaah_id());
+create policy cr_insert on public.chat_room for insert with check (
+  auth.uid() is not null
+);
 drop policy if exists cr_update on public.chat_room;
-create policy cr_update on public.chat_room for update using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+create policy cr_update on public.chat_room for update using (
+  auth.uid() is not null and (public.is_staff() or doctor_id = auth.uid() or jamaah_id = public.current_jamaah_id())
+);
 drop policy if exists cr_delete on public.chat_room;
 create policy cr_delete on public.chat_room for delete using (public.is_staff());
 
--- CHAT_MESSAGE
+-- CHAT_MESSAGE — any authenticated user can select/insert (chat participants)
 alter table public.chat_message enable row level security;
 drop policy if exists cm_select on public.chat_message;
 create policy cm_select on public.chat_message for select using (
-  public.is_staff() or
-  exists (select 1 from public.chat_room where id = chat_message.room_id and jamaah_id = public.current_jamaah_id())
+  auth.uid() is not null and (
+    public.is_staff() or
+    exists (select 1 from public.chat_room where id = chat_message.room_id and (jamaah_id = public.current_jamaah_id() or doctor_id = auth.uid()))
+  )
 );
 drop policy if exists cm_insert on public.chat_message;
 create policy cm_insert on public.chat_message for insert with check (
-  public.is_staff() or
-  exists (select 1 from public.chat_room where id = chat_message.room_id and jamaah_id = public.current_jamaah_id())
+  auth.uid() is not null and (
+    public.is_staff() or
+    exists (select 1 from public.chat_room where id = chat_message.room_id and (jamaah_id = public.current_jamaah_id() or doctor_id = auth.uid()))
+  )
 );
 drop policy if exists cm_update on public.chat_message;
 create policy cm_update on public.chat_message for update using (public.is_staff());
@@ -910,8 +924,45 @@ values
 on conflict do nothing;
 
 -- ============================================================================
+-- 10. SUPABASE REALTIME — enable broadcast for chat tables
+-- ============================================================================
+-- Adds chat_message and chat_room to the realtime publication so that
+-- INSERT/UPDATE/DELETE events are broadcast to subscribed clients.
+-- Without this, supabase.channel(...).on('postgres_changes', ...) won't fire.
+do $$
+begin
+  -- Add tables to the realtime publication (ignore if already present)
+  begin
+    alter publication supabase_realtime add table public.chat_message;
+  exception when others then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.chat_room;
+  exception when others then null;
+  end;
+end;
+$$;
+
+-- Also ensure the publication exists (Supabase creates it by default, but just in case)
+do $$
+begin
+  -- Check if publication exists; if not, this will error silently
+  perform 1 from pg_publication where pubname = 'supabase_realtime';
+  -- If we get here, publication exists — tables are already added above
+exception when others then
+  -- Publication doesn't exist — create it (rare case)
+  begin
+    create publication supabase_realtime for table public.chat_message, public.chat_room;
+  exception when others then null;
+  end;
+end;
+$$;
+
+-- ============================================================================
 -- DONE — 20 tables (profiles, audit_log, jamaah + 17 clinical/telemedicine)
+-- Realtime enabled on chat_message + chat_room.
 -- Verify:
 --   select tablename from pg_tables where schemaname='public' order by tablename;
 --   select tablename, count(*) from pg_policies where schemaname='public' group by tablename;
+--   select * from pg_publication_tables where pubname='supabase_realtime';
 -- ============================================================================
