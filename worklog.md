@@ -530,3 +530,48 @@ User Action Required:
 2. Sign in → open Telemedicine → select jamaah → type message → send
 3. Check browser console for full logging (user, roomData, roomError, messageData, messageError)
 4. Check Supabase Dashboard → Table Editor → chat_room + chat_message for stored data
+
+---
+Task ID: CHAT-SENDMESSAGE-AUDIT
+Agent: Enterprise Software Architect
+Task: Audit sendMessage() — chat_message not saved despite room creation succeeding
+
+Screenshot Analysis (VLM):
+- ENSURE ROOM: ✓ room created (d8001233-d63b-456f-ab17-f74ba673ed11)
+- fetchMessages: ✓ 0 messages
+- Realtime: ✓ SUBSCRIBED
+- SEND MESSAGE: "input:" logged → then NO further logs (no user:, no INSERT payload, no messageData, no messageError)
+
+Root Cause Analysis:
+1. The sendMessage() function was stopping silently after console.log("input:", input)
+2. No try/catch wrapper — uncaught exceptions would disappear
+3. The .insert().select("*").single() chain could fail on the SELECT step (RLS read-back issue)
+4. The set_meta_on_insert() trigger was NOT security definer — auth.uid() could fail in trigger context, silently blocking the INSERT
+
+Fixes Applied:
+
+1. sendMessage() completely rewritten with:
+   - try/catch around the ENTIRE function body
+   - Step-by-step logging: step 1 (called), step 2 (jamaahId OK), step 3 (user OK), step 4 (roomId check), step 5 (room confirmed), step 6 (senderName), step 7 (about to INSERT), step 8 (executing), step 9 (completed), step 10 (succeeded), step 11 (refreshing), step 12 (done)
+   - console.log BEFORE insert: room_id, sender_type, sender_name, type, content, auth.uid()
+   - console.log AFTER insert: messageData, messageError
+   - console.error on failure (never catch without console.error)
+   - Real PostgreSQL error in alert: error code, message, details, hint, payload
+   - Removed .select("*").single() chain — now just .insert(payload) to isolate INSERT from SELECT
+   - After INSERT succeeds, calls fetchMessages(rId) to refresh via select()
+
+2. sendText() in conversation-panel.tsx:
+   - Added console.log before calling supabaseSend
+   - Added console.log after supabaseSend returns
+   - Always clears input (even on null return, since errors are already alerted)
+
+3. Schema fix: set_meta_on_insert() and set_meta_on_update() now marked SECURITY DEFINER
+   - Ensures auth.uid() works correctly inside trigger functions
+   - Prevents silent trigger failures that block INSERT
+
+User Action Required:
+1. Re-run supabase/schema.sql (updates trigger functions to SECURITY DEFINER)
+2. Sign in → Telemedicine → select jamaah → type message → send
+3. Check browser console — should now see step 1 through step 12 logging
+4. If INSERT fails, the alert will show the exact PostgreSQL error code + message
+5. If INSERT succeeds, check Supabase Dashboard → Table Editor → chat_message for the row

@@ -234,96 +234,136 @@ export function useSupabaseChat(jamaahId: string | null) {
   const sendMessage = React.useCallback(
     async (input: NewMessageInput): Promise<ChatMessageRow | null> => {
       console.log("========== SEND MESSAGE ==========");
-      console.log("input:", input);
-      console.log("user:", user);
-      console.log("user.id:", user?.id ?? "NOT AUTHENTICATED");
-      console.log("current roomId:", roomId);
+      console.log("[sendMessage] step 1: function called");
+      console.log("[sendMessage] input:", JSON.stringify(input));
+      console.log("[sendMessage] user:", user ? user.id : "NULL");
+      console.log("[sendMessage] jamaahId:", jamaahId);
+      console.log("[sendMessage] roomId (from state):", roomId);
 
+      // --- Guard: jamaahId ---
       if (!jamaahId) {
+        console.error("[sendMessage] EXIT: jamaahId is null");
         alert("Gagal: ID Jamaah tidak ditemukan.");
         return null;
       }
+      console.log("[sendMessage] step 2: jamaahId OK");
+
+      // --- Guard: user ---
       if (!user) {
+        console.error("[sendMessage] EXIT: user is null — not authenticated");
         alert("Gagal: Anda belum terautentikasi. Silakan masuk kembali.");
         return null;
       }
+      console.log("[sendMessage] step 3: user OK, id =", user.id);
 
-      // Ensure we have a room_id before INSERT
+      // --- Ensure room_id ---
       let rId = roomId;
+      console.log("[sendMessage] step 4: checking roomId =", rId);
       if (!rId) {
-        console.log("[sendMessage] roomId is null — calling ensureRoom...");
+        console.log("[sendMessage] step 4a: roomId is null — calling ensureRoom...");
         rId = await ensureRoom();
+        console.log("[sendMessage] step 4b: ensureRoom returned:", rId);
       }
       if (!rId) {
-        // ensureRoom already showed the real error alert
+        console.error("[sendMessage] EXIT: rId is null after ensureRoom");
         return null;
       }
+      console.log("[sendMessage] step 5: room_id confirmed =", rId);
 
       const senderName = input.senderName ?? user.email ?? "Dokter";
+      console.log("[sendMessage] step 6: senderName =", senderName);
 
-      // ===== console.log before INSERT =====
-      console.log("[sendMessage] INSERT payload to chat_message:");
-      console.log("  room_id:", rId);
-      console.log("  sender_type:", input.senderType);
-      console.log("  sender_name:", senderName);
-      console.log("  type:", input.type);
-      console.log("  content:", input.content);
-      console.log("  auth.uid():", user.id);
+      // ===== BUILD INSERT PAYLOAD =====
+      const insertPayload = {
+        room_id: rId,
+        sender_type: input.senderType,
+        sender_name: senderName,
+        type: input.type,
+        content: input.content,
+        attachment_url: input.attachmentUrl ?? null,
+        attachment_name: input.attachmentName ?? null,
+        request_id: input.requestId ?? null,
+      };
+
+      // ===== console.log BEFORE INSERT =====
+      console.log("[sendMessage] step 7: ABOUT TO INSERT to chat_message");
+      console.log("[sendMessage] INSERT payload:", JSON.stringify(insertPayload));
+      console.log("[sendMessage]   room_id:", rId);
+      console.log("[sendMessage]   sender_type:", input.senderType);
+      console.log("[sendMessage]   sender_name:", senderName);
+      console.log("[sendMessage]   type:", input.type);
+      console.log("[sendMessage]   content:", input.content);
+      console.log("[sendMessage]   auth.uid():", user.id);
 
       setSending(true);
-      const { data: messageData, error: messageError } = await supabase
-        .from("chat_message")
-        .insert({
-          room_id: rId,
-          sender_type: input.senderType,
-          sender_name: senderName,
-          type: input.type,
-          content: input.content,
-          attachment_url: input.attachmentUrl ?? null,
-          attachment_name: input.attachmentName ?? null,
-          request_id: input.requestId ?? null,
-        })
-        .select("*")
-        .single();
 
-      console.log("[sendMessage] messageData:", messageData);
-      console.log("[sendMessage] messageError:", messageError);
-      console.log("==================================");
+      try {
+        // ===== INSERT — no .select().single() chain (isolates INSERT from SELECT) =====
+        console.log("[sendMessage] step 8: executing supabase.from('chat_message').insert()...");
+        const { data: messageData, error: messageError } = await supabase
+          .from("chat_message")
+          .insert(insertPayload);
 
-      setSending(false);
+        // ===== console.log AFTER INSERT =====
+        console.log("[sendMessage] step 9: INSERT completed");
+        console.log("[sendMessage] messageData:", messageData);
+        console.log("[sendMessage] messageError:", messageError);
+        console.log("==================================");
 
-      if (messageError) {
-        const pgError = messageError.message || String(messageError);
-        const pgCode = (messageError as { code?: string }).code ?? "";
-        console.error("[sendMessage] INSERT failed:", pgCode, pgError);
+        setSending(false);
+
+        if (messageError) {
+          // ===== Show real PostgreSQL error =====
+          const pgError = messageError.message || String(messageError);
+          const pgCode = (messageError as { code?: string }).code ?? "";
+          const pgDetails = (messageError as { details?: string }).details ?? "";
+          const pgHint = (messageError as { hint?: string }).hint ?? "";
+          console.error("[sendMessage] INSERT FAILED:", pgCode, pgError, pgDetails, pgHint);
+          alert(
+            `Gagal mengirim pesan ke tabel chat_message.\n\n` +
+            `PostgreSQL Error Code: ${pgCode}\n` +
+            `Message: ${pgError}\n` +
+            (pgDetails ? `Details: ${pgDetails}\n` : "") +
+            (pgHint ? `Hint: ${pgHint}\n` : "") +
+            `\nPayload yang dikirim:\n` +
+            `  room_id: ${rId}\n` +
+            `  sender_type: ${input.senderType}\n` +
+            `  sender_name: ${senderName}\n` +
+            `  type: ${input.type}\n` +
+            `  content: ${input.content}`
+          );
+          return null;
+        }
+
+        console.log("[sendMessage] step 10: INSERT succeeded (no error)");
+
+        // ===== After INSERT succeeds, REFRESH data via select() =====
+        console.log("[sendMessage] step 11: refreshing messages via select()...");
+        await fetchMessages(rId);
+        console.log("[sendMessage] step 12: refresh complete");
+
+        // Update room's last_message_at (fire-and-forget)
+        const { error: roomUpdateErr } = await supabase
+          .from("chat_room")
+          .update({ last_message_at: new Date().toISOString() })
+          .eq("id", rId);
+        if (roomUpdateErr) {
+          console.warn("[sendMessage] last_message_at update failed:", roomUpdateErr.message);
+        }
+
+        console.log("[sendMessage] ✓ DONE — message should be in chat_message table");
+        return null; // Realtime + refresh handle the UI
+      } catch (err) {
+        setSending(false);
+        console.error("[sendMessage] EXCEPTION (uncaught):", err);
         alert(
-          `Gagal mengirim pesan.\n\nPostgreSQL Error [${pgCode}]:\n${pgError}\n\n` +
-          `Payload:\n  room_id: ${rId}\n  sender_type: ${input.senderType}\n  type: ${input.type}`
+          `Exception saat mengirim pesan:\n\n${err instanceof Error ? err.message : String(err)}\n\n` +
+          `Stack: ${err instanceof Error ? err.stack : "no stack"}`
         );
         return null;
       }
-
-      const inserted = messageData as ChatMessageRow;
-
-      // Update room's last_message_at (fire-and-forget, log errors)
-      const { error: roomUpdateErr } = await supabase
-        .from("chat_room")
-        .update({ last_message_at: new Date().toISOString() })
-        .eq("id", rId);
-      if (roomUpdateErr) {
-        console.warn("[sendMessage] Failed to update last_message_at:", roomUpdateErr.message);
-      }
-
-      // Realtime will add the message automatically, but as fallback:
-      setMessages((prev) => {
-        if (prev.some((m) => m.id === inserted.id)) return prev;
-        return [...prev, inserted];
-      });
-
-      console.log("[sendMessage] ✓ Message inserted:", inserted.id);
-      return inserted;
     },
-    [jamaahId, roomId, ensureRoom, user, supabase]
+    [jamaahId, roomId, ensureRoom, user, supabase, fetchMessages]
   );
 
   // ===== 5. Mark messages as read =====

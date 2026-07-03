@@ -155,6 +155,7 @@ create index if not exists idx_audit_log_created_at on public.audit_log(created_
 create or replace function public.set_meta_on_insert()
 returns trigger
 language plpgsql
+security definer set search_path = public
 as $$
 begin
   new.created_at := coalesce(new.created_at, now());
@@ -173,6 +174,7 @@ $$;
 create or replace function public.set_meta_on_update()
 returns trigger
 language plpgsql
+security definer set search_path = public
 as $$
 begin
   new.updated_at := now();

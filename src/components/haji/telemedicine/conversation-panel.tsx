@@ -231,14 +231,20 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
     const text = (content ?? input).trim();
     if (!text) return;
     stopTyping();
+    console.log("[sendText] calling supabaseSend with:", { senderType: "DOCTOR", type: "TEXT", content: text });
     const inserted = await supabaseSend({
       senderType: "DOCTOR",
       type: "TEXT",
       content: text,
     });
+    console.log("[sendText] supabaseSend returned:", inserted);
     if (inserted) {
       setInput("");
       toast.success("Pesan terkirim");
+    } else {
+      // INSERT returned null — could be error (already alerted) or success-with-null
+      // Still clear input if no error alert was shown
+      setInput("");
     }
   }
 
