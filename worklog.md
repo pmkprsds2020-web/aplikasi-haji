@@ -329,3 +329,20 @@ Work Log:
 Verification (Agent Browser):
 - Pra Haji → TTV sub-tab: Input TTV button → Riwayat TTV table (Tanggal/TD/Nadi/RR/Suhu/SpO₂/BB/LP) → Grafik (Tekanan Darah, Suhu & SpO₂, BB & Lingkar Perut) ✓
 - Pasca Haji → TTV sub-tab: Input TTV button → Riwayat TTV Pasca Haji table (Waktu/Hari/TD/Nadi/RR/Suhu/SpO₂/BB/GD/Catatan with real data) → Grafik tren ✓
+
+---
+Task ID: LAB-SKRINING-LAYOUT-FIX
+Agent: Orchestrator
+Task: Fix Lab/Skrining table+chart order (Pra Haji) + remove 4 big charts (Pasca Haji)
+
+Work Log:
+- Pra Haji LabSubView: swapped order — Riwayat Lab table now on TOP, PreHajjLabChart BELOW (was chart-then-table)
+- Pra Haji SkriningSubView: moved Riwayat Skrining table to TOP, grid instrument cards BELOW (was cards-then-table)
+- Pasca Haji PascaTrendCharts: removed 4 big trend charts (Perubahan Tekanan Darah, Gula Darah, Berat Badan, Saturasi); kept only "Perubahan Risiko per Milestone" chart
+- Removed unused TrendCard function + unused imports (Legend, ReferenceLine, formatTanggal)
+- Lint clean, tsc clean on modified files
+
+Verification (Agent Browser):
+- Pra Haji → Lab sub-tab: Input Lab → Riwayat Lab table (Hb/GDP/HbA1c/...) → Grafik (Hb/GDP/HbA1c trends) ✓
+- Pra Haji → Skrining sub-tab: Riwayat Skrining table (Tanggal/Instrumen/Skor/Catatan with real data) → Grid instrument cards ✓
+- Pasca Haji tab: only Timeline Monitoring + Perubahan Risiko per Milestone remain; 4 big perubahan charts removed ✓

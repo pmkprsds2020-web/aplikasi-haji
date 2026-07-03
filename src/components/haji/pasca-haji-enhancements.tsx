@@ -6,11 +6,10 @@ import {
 } from "@/components/ui/card";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ReferenceLine,
+  Tooltip,
 } from "recharts";
 import { CheckCircle2, Circle, AlertCircle, TrendingUp } from "lucide-react";
 import type { JamaahDetail, RiskLevel } from "@/lib/types";
-import { formatTanggal } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -118,14 +117,6 @@ export function PascaTrendCharts({ jamaah }: Props) {
   const sorted = [...jamaah.vitalSigns].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
   );
-  const data = sorted.map((v) => ({
-    label: `H${v.hariKe}`,
-    tgl: formatTanggal(v.createdAt),
-    TD: v.tdSistolik,
-    GD: v.gulaDarah,
-    BB: v.beratBadan,
-    SpO2: v.spo2,
-  }));
 
   // Risk trend per milestone
   const riskData = MILESTONES.map((h) => {
@@ -137,7 +128,7 @@ export function PascaTrendCharts({ jamaah }: Props) {
     };
   }).filter((d) => d.skor !== null);
 
-  if (!data.length) {
+  if (!sorted.length) {
     return (
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-base">Tren Pasca Haji</CardTitle></CardHeader>
@@ -147,82 +138,28 @@ export function PascaTrendCharts({ jamaah }: Props) {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <TrendCard title="Perubahan Tekanan Darah" unit="mmHg" data={data}>
-        <Line type="monotone" dataKey="TD" name="Sistolik" stroke="#0d9488" strokeWidth={2} dot={{ r: 3 }} connectNulls />
-        <ReferenceLine y={140} stroke="#fca5a5" strokeDasharray="4 4" />
-      </TrendCard>
-
-      <TrendCard title="Perubahan Gula Darah" unit="mg/dL" data={data}>
-        <Line type="monotone" dataKey="GD" name="Gula Darah" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} connectNulls />
-        <ReferenceLine y={180} stroke="#fde68a" strokeDasharray="4 4" />
-        <ReferenceLine y={250} stroke="#fca5a5" strokeDasharray="4 4" />
-      </TrendCard>
-
-      <TrendCard title="Perubahan Berat Badan" unit="kg" data={data}>
-        <Line type="monotone" dataKey="BB" name="Berat Badan" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} connectNulls />
-      </TrendCard>
-
-      <TrendCard title="Perubahan Saturasi (SpO₂)" unit="%" data={data}>
-        <Line type="monotone" dataKey="SpO2" name="SpO₂" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 3 }} connectNulls />
-        <ReferenceLine y={94} stroke="#fca5a5" strokeDasharray="4 4" />
-      </TrendCard>
-
-      {/* Risk trend */}
-      <Card className="lg:col-span-2">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <TrendingUp className="h-4 w-4 text-primary" /> Perubahan Risiko per Milestone
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {riskData.length > 0 ? (
-            <div className="h-[180px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={riskData} margin={{ top: 5, right: 10, left: -18, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.5} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" />
-                  <YAxis domain={[0, 4]} ticks={[1, 2, 3]} tickFormatter={(v) => v === 1 ? "Hijau" : v === 2 ? "Kuning" : v === 3 ? "Merah" : ""} tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" />
-                  <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid var(--border)", background: "var(--popover)", color: "var(--popover-foreground)", fontSize: 12 }} formatter={(v: number) => v === 3 ? "Merah" : v === 2 ? "Kuning" : "Hijau"} />
-                  <Line type="monotone" dataKey="skor" name="Risiko" stroke="#f43f5e" strokeWidth={2} dot={{ r: 4, fill: "#f43f5e" }} connectNulls />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <p className="py-4 text-center text-sm text-muted-foreground">Belum ada data risiko per milestone.</p>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function TrendCard({
-  title, unit, data, children,
-}: {
-  title: string; unit: string; data: Record<string, unknown>[]; children: React.ReactNode;
-}) {
-  return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center justify-between text-sm">
-          <span>{title}</span>
-          <span className="text-xs font-normal text-muted-foreground">{unit}</span>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <TrendingUp className="h-4 w-4 text-primary" /> Perubahan Risiko per Milestone
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="h-[180px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data} margin={{ top: 5, right: 10, left: -18, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.5} />
-              <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" />
-              <YAxis tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" />
-              <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid var(--border)", background: "var(--popover)", color: "var(--popover-foreground)", fontSize: 12 }} labelFormatter={(_, p) => (p && p[0] ? String(p[0].payload.tgl) : "")} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              {children}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        {riskData.length > 0 ? (
+          <div className="h-[180px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={riskData} margin={{ top: 5, right: 10, left: -18, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.5} />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" />
+                <YAxis domain={[0, 4]} ticks={[1, 2, 3]} tickFormatter={(v) => v === 1 ? "Hijau" : v === 2 ? "Kuning" : v === 3 ? "Merah" : ""} tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" />
+                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid var(--border)", background: "var(--popover)", color: "var(--popover-foreground)", fontSize: 12 }} formatter={(v: number) => v === 3 ? "Merah" : v === 2 ? "Kuning" : "Hijau"} />
+                <Line type="monotone" dataKey="skor" name="Risiko" stroke="#f43f5e" strokeWidth={2} dot={{ r: 4, fill: "#f43f5e" }} connectNulls />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <p className="py-4 text-center text-sm text-muted-foreground">Belum ada data risiko per milestone.</p>
+        )}
       </CardContent>
     </Card>
   );

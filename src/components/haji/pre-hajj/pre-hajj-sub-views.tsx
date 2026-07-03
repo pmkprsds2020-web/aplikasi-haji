@@ -484,7 +484,6 @@ export function LabSubView({ jamaahId, bundle, onChanged }: SubViewProps) {
           <Plus className="mr-2 h-4 w-4" /> Input Lab
         </Button>
       </div>
-      <PreHajjLabChart labs={bundle.labs} />
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">Riwayat Lab</CardTitle>
@@ -493,7 +492,7 @@ export function LabSubView({ jamaahId, bundle, onChanged }: SubViewProps) {
           {sorted.length === 0 ? (
             <EmptyState icon={TestTube} title="Belum ada data lab" desc="Input hasil pemeriksaan lab." />
           ) : (
-            <div className="max-h-96 overflow-y-auto">
+            <div className="max-h-96 overflow-y-auto scrollbar-thin">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -536,6 +535,7 @@ export function LabSubView({ jamaahId, bundle, onChanged }: SubViewProps) {
           )}
         </CardContent>
       </Card>
+      <PreHajjLabChart labs={bundle.labs} />
       <PreHajjLabDialog jamaahId={jamaahId} open={open} onOpenChange={setOpen} onSaved={onChanged} />
     </div>
   );
@@ -576,6 +576,45 @@ export function SkriningSubView({ jamaahId, bundle, onChanged }: SubViewProps) {
 
   return (
     <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Riwayat Skrining</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {sortedHistory.length === 0 ? (
+            <EmptyState icon={ClipboardList} title="Belum ada skrining" desc="Pilih instrumen di bawah untuk mulai skrining." />
+          ) : (
+            <div className="max-h-96 overflow-y-auto scrollbar-thin">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Tanggal</TableHead>
+                    <TableHead>Instrumen</TableHead>
+                    <TableHead>Skor</TableHead>
+                    <TableHead>Catatan</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sortedHistory.map((s) => {
+                    const meta = PRE_HAJJ_SCREENING_META[s.jenis];
+                    return (
+                      <TableRow key={s.id}>
+                        <TableCell className="text-xs">{formatTanggalWaktu(s.createdAt)}</TableCell>
+                        <TableCell className="text-xs font-medium">{meta.judul}</TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="text-xs">{s.skor ?? "—"}</Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{s.catatan ?? "—"}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {PRE_HAJJ_SCREENING_ORDER.map((jns) => {
           const meta = PRE_HAJJ_SCREENING_META[jns];
@@ -614,45 +653,6 @@ export function SkriningSubView({ jamaahId, bundle, onChanged }: SubViewProps) {
           );
         })}
       </div>
-
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Riwayat Skrining</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {sortedHistory.length === 0 ? (
-            <EmptyState icon={ClipboardList} title="Belum ada skrining" desc="Pilih instrumen di atas untuk mulai skrining." />
-          ) : (
-            <div className="max-h-96 overflow-y-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Tanggal</TableHead>
-                    <TableHead>Instrumen</TableHead>
-                    <TableHead>Skor</TableHead>
-                    <TableHead>Catatan</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sortedHistory.map((s) => {
-                    const meta = PRE_HAJJ_SCREENING_META[s.jenis];
-                    return (
-                      <TableRow key={s.id}>
-                        <TableCell className="text-xs">{formatTanggalWaktu(s.createdAt)}</TableCell>
-                        <TableCell className="text-xs font-medium">{meta.judul}</TableCell>
-                        <TableCell>
-                          <Badge variant="secondary" className="text-xs">{s.skor ?? "—"}</Badge>
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{s.catatan ?? "—"}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       <PreHajjScreeningDialog
         jamaahId={jamaahId}
