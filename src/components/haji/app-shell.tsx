@@ -3,7 +3,7 @@
 import * as React from "react";
 import {
   LayoutDashboard, Users, CalendarClock, Sparkles, Moon, Sun,
-  HeartPulse, type LucideIcon,
+  HeartPulse, Stethoscope, type LucideIcon,
 } from "lucide-react";
 import { useApp, type ViewName } from "@/lib/store";
 import { useTheme } from "next-themes";
@@ -14,16 +14,18 @@ import { JamaahListView } from "./jamaah-list-view";
 import { JamaahDetailView } from "./jamaah-detail-view";
 import { MonitoringView } from "./monitoring-view";
 import { AiView } from "./ai-view";
+import { TelemedicineView } from "./telemedicine/telemedicine-view";
 
 const NAV: { view: ViewName; label: string; icon: LucideIcon; desc: string }[] = [
   { view: "dashboard", label: "Dashboard", icon: LayoutDashboard, desc: "Ringkasan & risiko" },
   { view: "jamaah", label: "Data Jamaah", icon: Users, desc: "Kelola jamaah" },
+  { view: "telemedicine", label: "Telemedicine", icon: Stethoscope, desc: "Chat & monitoring" },
   { view: "monitoring", label: "Monitoring", icon: CalendarClock, desc: "Jadwal 1·7·14·30" },
   { view: "ai", label: "Analisis AI", icon: Sparkles, desc: "Rekomendasi AI" },
 ];
 
 export function AppShell() {
-  const { view } = useApp();
+  const { view, telemedicineJamaahId } = useApp();
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -57,13 +59,19 @@ export function AppShell() {
           </header>
 
           <main className="flex-1 p-4 sm:p-6">
-            <div className="mx-auto max-w-6xl">
-              {view === "dashboard" && <DashboardView />}
-              {view === "jamaah" && <JamaahListView />}
-              {view === "detail" && <JamaahDetailView />}
-              {view === "monitoring" && <MonitoringView />}
-              {view === "ai" && <AiView />}
-            </div>
+            {view === "telemedicine" ? (
+              <div className="mx-auto max-w-7xl">
+                <TelemedicineView initialJamaahId={telemedicineJamaahId ?? undefined} />
+              </div>
+            ) : (
+              <div className="mx-auto max-w-6xl">
+                {view === "dashboard" && <DashboardView />}
+                {view === "jamaah" && <JamaahListView />}
+                {view === "detail" && <JamaahDetailView />}
+                {view === "monitoring" && <MonitoringView />}
+                {view === "ai" && <AiView />}
+              </div>
+            )}
           </main>
         </div>
       </div>
@@ -78,9 +86,10 @@ export function AppShell() {
       </footer>
 
       {/* Mobile bottom nav */}
-      <nav className="sticky bottom-0 z-30 grid grid-cols-4 border-t border-border bg-card/95 backdrop-blur lg:hidden">
+      <nav className="sticky bottom-0 z-30 grid grid-cols-5 border-t border-border bg-card/95 backdrop-blur lg:hidden">
         <MobileNavBtn view="dashboard" />
         <MobileNavBtn view="jamaah" />
+        <MobileNavBtn view="telemedicine" />
         <MobileNavBtn view="monitoring" />
         <MobileNavBtn view="ai" />
       </nav>
@@ -89,11 +98,11 @@ export function AppShell() {
 }
 
 function MobileNavBtn({ view: target }: { view: ViewName }) {
-  const { view, goDashboard, goJamaahList, goMonitoring, goAI } = useApp();
+  const { view, goDashboard, goJamaahList, goMonitoring, goAI, goTelemedicine } = useApp();
   const active = view === target || (target === "jamaah" && view === "detail");
   const meta = NAV.find((n) => n.view === target)!;
   const Icon = meta.icon;
-  const go = target === "dashboard" ? goDashboard : target === "jamaah" ? goJamaahList : target === "monitoring" ? goMonitoring : goAI;
+  const go = target === "dashboard" ? goDashboard : target === "jamaah" ? goJamaahList : target === "monitoring" ? goMonitoring : target === "ai" ? goAI : goTelemedicine;
   return (
     <button
       onClick={go}
@@ -109,9 +118,9 @@ function MobileNavBtn({ view: target }: { view: ViewName }) {
 }
 
 function SidebarContent() {
-  const { view, goDashboard, goJamaahList, goMonitoring, goAI } = useApp();
+  const { view, goDashboard, goJamaahList, goMonitoring, goAI, goTelemedicine } = useApp();
   const goFns: Record<ViewName, () => void> = {
-    dashboard: goDashboard, jamaah: goJamaahList, detail: goJamaahList, monitoring: goMonitoring, ai: goAI,
+    dashboard: goDashboard, jamaah: goJamaahList, detail: goJamaahList, monitoring: goMonitoring, ai: goAI, telemedicine: () => goTelemedicine(),
   };
   return (
     <>

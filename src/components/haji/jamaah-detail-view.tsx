@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, User, Plane, Activity, History, Sparkles, Pencil,
-  Phone, MapPin, Calendar, Stethoscope, Users, ShieldCheck,
+  Phone, MapPin, Calendar, Stethoscope, Users, ShieldCheck, MessageCircle,
   type LucideIcon,
 } from "lucide-react";
 import { useApp, type DetailMainTab } from "@/lib/store";
@@ -50,7 +50,7 @@ const MAIN_TABS: { key: DetailMainTab; label: string; icon: LucideIcon }[] = [
 
 export function JamaahDetailView() {
   const {
-    selectedJamaahId, goJamaahList, goAI, detailTab, setDetailTab,
+    selectedJamaahId, goJamaahList, goAI, goTelemedicine, detailTab, setDetailTab,
     pascaTab, setPascaTab, refreshKey, bumpRefresh,
   } = useApp();
   const [detail, setDetail] = React.useState<JamaahDetail | null>(null);
@@ -167,9 +167,12 @@ export function JamaahDetailView() {
               </div>
             </div>
             <div className="flex flex-col items-end gap-2">
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
                   <Pencil className="mr-1.5 h-3.5 w-3.5" /> Edit
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => goTelemedicine(j.id)}>
+                  <MessageCircle className="mr-1.5 h-3.5 w-3.5" /> Chat Jamaah
                 </Button>
                 <Button size="sm" onClick={() => goAI(j.id)}>
                   <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Analisis AI

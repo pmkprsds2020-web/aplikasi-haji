@@ -51,6 +51,12 @@ model Jamaah {
   screenings  Screening[]
   vitalSigns  VitalSign[]
 
+  // Relasi Telemedicine
+  chatRoom              ChatRoom?
+  telemedicineRequests  TelemedicineRequest[]
+  telemedicineSchedules TelemedicineSchedule[]
+  telemedicineAiSummaries TelemedicineAiSummary[]
+
   // Relasi Pra Haji
   preHajjVitals        PreHajjVital[]
   preHajjLabs          PreHajjLab[]
@@ -260,6 +266,114 @@ model PreHajjAiAssessment {
   resumeMedis        String?
   suratRujukan       String?
   createdAt          DateTime @default(now())
+
+  @@index([jamaahId])
+}
+
+// ===== TELEMEDICINE MONITORING =====
+
+// Ruang chat per jamaah (1:1 dokter-jamaah)
+model ChatRoom {
+  id             String   @id @default(cuid())
+  jamaahId       String   @unique
+  jamaah         Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
+  doctorId       String   @default("dokter-1")
+  lastMessageAt  DateTime @default(now())
+  unreadByDoctor Int      @default(0)
+  unreadByJamaah Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  messages  ChatMessage[]
+  requests  TelemedicineRequest[]
+
+  @@index([doctorId])
+}
+
+// Pesan chat (text, voice, file, form request, form result, alert, system)
+model ChatMessage {
+  id            String   @id @default(cuid())
+  roomId        String
+  room          ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  senderType    String   // DOCTOR | JAMAAH | SYSTEM | AI
+  senderName    String?
+  type          String   // TEXT | VOICE | IMAGE | FILE | PDF | LOCATION | STICKER |
+                         // TTV_REQUEST | SKRINING_REQUEST | EDUKASI | OBAT | MONITORING |
+                         // TTV_RESULT | SKRINING_RESULT | ALERT | TEMPLATE
+  content       String   // text or JSON payload
+  attachmentUrl String?
+  attachmentName String?
+  requestId     String?  // link to TelemedicineRequest
+  readByDoctor  Boolean  @default(false)
+  readByJamaah  Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([roomId, createdAt])
+  @@index([senderType])
+}
+
+// Permintaan form telemedicine (TTV, skrining, edukasi, obat, monitoring harian, kronis)
+model TelemedicineRequest {
+  id           String   @id @default(cuid())
+  roomId       String
+  room         ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  jamaahId     String
+  jamaah       Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
+  category     String   // TTV | SKRINING | EDUKASI | OBAT | DAILY_COMPLAINT | CHRONIC
+  subType      String?  // TTV: "TD,SUHU,SPO2" | SKRINING: "PHQ9" | CHRONIC: "HIPERTENSI"
+  title        String
+  fields       String   // JSON: definisi field form
+  status       String   @default("PENDING") // PENDING | SUBMITTED | EXPIRED
+  scheduledFor DateTime?
+  submittedAt  DateTime?
+  response     String?  // JSON: jawaban pasien
+  skor         String?
+  hariKe       Int?
+  createdAt    DateTime @default(now())
+
+  @@index([jamaahId, category])
+  @@index([status])
+}
+
+// Template pesan / form yang dapat dipakai ulang
+model TelemedicineTemplate {
+  id        String   @id @default(cuid())
+  title     String
+  category  String   // TEXT | TTV | SKRINING | EDUKASI | OBAT
+  content   String
+  createdAt DateTime @default(now())
+}
+
+// Jadwal pengiriman form otomatis (reminder)
+model TelemedicineSchedule {
+  id         String   @id @default(cuid())
+  jamaahId   String
+  jamaah     Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
+  category   String   // TTV | SKRINING | CHRONIC
+  subType    String?
+  title      String
+  hariKe     Int?     // hari monitoring ke- (untuk pasca haji)
+  timeOfDay  String?  // "08:00" untuk harian
+  active     Boolean  @default(true)
+  lastSentAt DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([jamaahId, active])
+}
+
+// Hasil AI summary percakapan + data klinis
+model TelemedicineAiSummary {
+  id          String   @id @default(cuid())
+  jamaahId    String
+  jamaah      Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
+  roomId      String
+  ringkasan   String
+  soap        String?
+  assessment  String?
+  plan        String?
+  prioritas   String?  // URGENT | TINGGI | SEDANG | RUTIN
+  rekomendasi String?  // JSON array
+  alerts      String?  // JSON array of {level, detail}
+  createdAt   DateTime @default(now())
 
   @@index([jamaahId])
 }

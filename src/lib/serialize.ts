@@ -13,6 +13,20 @@ import type {
   PreHajjEducationData,
   PreHajjAiAssessmentData,
 } from "./pre-hajj-types";
+import type {
+  ChatRoomData,
+  ChatMessageData,
+  ChatSenderType,
+  ChatMessageType,
+  TelemedicineRequestData,
+  TelemedicineCategory,
+  RequestStatus,
+  FormField,
+  TelemedicineTemplateData,
+  TelemedicineScheduleData,
+  TelemedicineAiSummaryData,
+  AlertLevel,
+} from "./telemedicine-types";
 
 // Helper untuk konversi angka aman (SQLite/Prisma → number | null)
 function num(v: unknown): number | null {
@@ -254,5 +268,149 @@ export function serializePreHajjAiAssessment(a: {
     faktorRisiko: faktor, kesiapanBerangkat: a.kesiapanBerangkat,
     rekomendasi, soap: a.soap, resumeMedis: a.resumeMedis,
     suratRujukan: a.suratRujukan, createdAt: a.createdAt.toISOString(),
+  };
+}
+
+// ===== TELEMEDICINE SERIALIZERS =====
+
+export function serializeChatRoom(r: {
+  id: string; jamaahId: string; doctorId: string;
+  lastMessageAt: Date; unreadByDoctor: number; unreadByJamaah: number;
+  createdAt: Date;
+}): ChatRoomData {
+  return {
+    id: r.id, jamaahId: r.jamaahId, doctorId: r.doctorId,
+    lastMessageAt: r.lastMessageAt.toISOString(),
+    unreadByDoctor: r.unreadByDoctor, unreadByJamaah: r.unreadByJamaah,
+    createdAt: r.createdAt.toISOString(),
+  };
+}
+
+export function serializeChatMessage(m: {
+  id: string; roomId: string; senderType: string; senderName: string | null;
+  type: string; content: string; attachmentUrl: string | null;
+  attachmentName: string | null; requestId: string | null;
+  readByDoctor: boolean; readByJamaah: boolean; createdAt: Date;
+}): ChatMessageData {
+  return {
+    id: m.id, roomId: m.roomId,
+    senderType: m.senderType as ChatSenderType,
+    senderName: m.senderName,
+    type: m.type as ChatMessageType,
+    content: m.content, attachmentUrl: m.attachmentUrl,
+    attachmentName: m.attachmentName, requestId: m.requestId,
+    readByDoctor: m.readByDoctor, readByJamaah: m.readByJamaah,
+    createdAt: m.createdAt.toISOString(),
+  };
+}
+
+export function serializeTelemedicineRequest(r: {
+  id: string; roomId: string; jamaahId: string; category: string;
+  subType: string | null; title: string; fields: string; status: string;
+  scheduledFor: Date | null; submittedAt: Date | null; response: string | null;
+  skor: string | null; hariKe: number | null; createdAt: Date;
+}): TelemedicineRequestData {
+  let fields: FormField[] = [];
+  try {
+    const p = r.fields ? JSON.parse(r.fields) : [];
+    if (Array.isArray(p)) {
+      fields = p.map((f: Record<string, unknown>) => ({
+        key: String(f?.key ?? ""),
+        label: String(f?.label ?? ""),
+        type: (f?.type as FormField["type"]) ?? "text",
+        ...(f?.unit !== undefined ? { unit: String(f.unit) } : {}),
+        ...(Array.isArray(f?.options) ? { options: f.options as { value: string; label: string }[] } : {}),
+        ...(f?.required !== undefined ? { required: Boolean(f.required) } : {}),
+        ...(f?.placeholder !== undefined ? { placeholder: String(f.placeholder) } : {}),
+      }));
+    }
+  } catch {
+    fields = [];
+  }
+  let response: Record<string, unknown> | null = null;
+  if (r.response) {
+    try {
+      const p = JSON.parse(r.response);
+      response = (p && typeof p === "object" && !Array.isArray(p)) ? p as Record<string, unknown> : null;
+    } catch {
+      response = null;
+    }
+  }
+  return {
+    id: r.id, roomId: r.roomId, jamaahId: r.jamaahId,
+    category: r.category as TelemedicineCategory,
+    subType: r.subType, title: r.title, fields,
+    status: r.status as RequestStatus,
+    scheduledFor: r.scheduledFor ? r.scheduledFor.toISOString() : null,
+    submittedAt: r.submittedAt ? r.submittedAt.toISOString() : null,
+    response, skor: r.skor, hariKe: r.hariKe,
+    createdAt: r.createdAt.toISOString(),
+  };
+}
+
+export function serializeTelemedicineTemplate(t: {
+  id: string; title: string; category: string; content: string; createdAt: Date;
+}): TelemedicineTemplateData {
+  return {
+    id: t.id, title: t.title, category: t.category, content: t.content,
+    createdAt: t.createdAt.toISOString(),
+  };
+}
+
+export function serializeTelemedicineSchedule(s: {
+  id: string; jamaahId: string; category: string; subType: string | null;
+  title: string; hariKe: number | null; timeOfDay: string | null;
+  active: boolean; lastSentAt: Date | null; createdAt: Date;
+}): TelemedicineScheduleData {
+  return {
+    id: s.id, jamaahId: s.jamaahId,
+    category: s.category as TelemedicineCategory,
+    subType: s.subType, title: s.title, hariKe: s.hariKe,
+    timeOfDay: s.timeOfDay, active: s.active,
+    lastSentAt: s.lastSentAt ? s.lastSentAt.toISOString() : null,
+    createdAt: s.createdAt.toISOString(),
+  };
+}
+
+export function serializeTelemedicineAiSummary(a: {
+  id: string; jamaahId: string; roomId: string; ringkasan: string;
+  soap: string | null; assessment: string | null; plan: string | null;
+  prioritas: string | null; rekomendasi: string | null; alerts: string | null;
+  createdAt: Date;
+}): TelemedicineAiSummaryData {
+  let rekomendasi: Array<{ kategori: string; tindakan: string; urutan: number }> | null = null;
+  if (a.rekomendasi !== null && a.rekomendasi !== undefined) {
+    try {
+      const p = JSON.parse(a.rekomendasi);
+      if (Array.isArray(p)) {
+        rekomendasi = p.map((r: Record<string, unknown>) => ({
+          kategori: String(r?.kategori ?? ""),
+          tindakan: String(r?.tindakan ?? ""),
+          urutan: Number(r?.urutan ?? 0),
+        }));
+      }
+    } catch {
+      rekomendasi = null;
+    }
+  }
+  let alerts: Array<{ level: AlertLevel; detail: string }> | null = null;
+  if (a.alerts !== null && a.alerts !== undefined) {
+    try {
+      const p = JSON.parse(a.alerts);
+      if (Array.isArray(p)) {
+        alerts = p.map((r: Record<string, unknown>) => ({
+          level: (r?.level as AlertLevel) ?? "YELLOW",
+          detail: String(r?.detail ?? ""),
+        }));
+      }
+    } catch {
+      alerts = null;
+    }
+  }
+  return {
+    id: a.id, jamaahId: a.jamaahId, roomId: a.roomId,
+    ringkasan: a.ringkasan, soap: a.soap, assessment: a.assessment,
+    plan: a.plan, prioritas: a.prioritas, rekomendasi, alerts,
+    createdAt: a.createdAt.toISOString(),
   };
 }
