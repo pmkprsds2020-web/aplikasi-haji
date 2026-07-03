@@ -34,6 +34,17 @@ export interface JamaahData {
   kabupatenKota: string;
   puskesmas: string;
   dokterKeluarga: string;
+  // Profil EHHR tambahan
+  paspor?: string | null;
+  embarkasi?: string | null;
+  golDarah?: string | null;
+  riwayatPenyakit?: string | null;
+  riwayatOperasi?: string | null;
+  alergi?: string | null;
+  obatRutin?: string | null;
+  statusIstithaah?: string | null;
+  tanggalBerangkat?: string | null;
+  tanggalPulang?: string | null;
   riskLevel: RiskLevel;
   riskSummary: string;
   createdAt: string;

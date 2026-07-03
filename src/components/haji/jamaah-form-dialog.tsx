@@ -37,8 +37,13 @@ export function JamaahFormDialog({ open, onOpenChange, onSaved, initial }: Props
               tanggalTiba: initial.tanggalTiba.slice(0, 10),
               bandara: initial.bandara, kabupatenKota: initial.kabupatenKota,
               puskesmas: initial.puskesmas, dokterKeluarga: initial.dokterKeluarga,
+              paspor: initial.paspor ?? "", embarkasi: initial.embarkasi ?? "",
+              golDarah: initial.golDarah ?? "", riwayatPenyakit: initial.riwayatPenyakit ?? "",
+              riwayatOperasi: initial.riwayatOperasi ?? "", alergi: initial.alergi ?? "",
+              obatRutin: initial.obatRutin ?? "", statusIstithaah: initial.statusIstithaah ?? "Belum Dinilai",
+              tanggalBerangkat: initial.tanggalBerangkat ? initial.tanggalBerangkat.slice(0, 10) : "",
             }
-          : { kelamin: "L", tanggalTiba: new Date().toISOString().slice(0, 10) }
+          : { kelamin: "L", tanggalTiba: new Date().toISOString().slice(0, 10), statusIstithaah: "Belum Dinilai" }
       );
     }
   }, [open, initial]);
@@ -157,6 +162,53 @@ export function JamaahFormDialog({ open, onOpenChange, onSaved, initial }: Props
               <div className="sm:col-span-2">
                 <Label className="mb-1 block text-xs text-muted-foreground">Dokter Keluarga</Label>
                 <input className={FIELD_CLASS} value={f.dokterKeluarga ?? ""} onChange={(e) => set("dokterKeluarga", e.target.value)} placeholder="dr. Rina Kartika" />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <Label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Profil Medis & Perjalanan (EHHR)</Label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label className="mb-1 block text-xs text-muted-foreground">Nomor Paspor</Label>
+                <input className={FIELD_CLASS} value={f.paspor ?? ""} onChange={(e) => set("paspor", e.target.value)} placeholder="P2024..." />
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs text-muted-foreground">Embarkasi</Label>
+                <input className={FIELD_CLASS} value={f.embarkasi ?? ""} onChange={(e) => set("embarkasi", e.target.value)} placeholder="Jakarta (Soekarno-Hatta)" />
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs text-muted-foreground">Golongan Darah</Label>
+                <input className={FIELD_CLASS} value={f.golDarah ?? ""} onChange={(e) => set("golDarah", e.target.value)} placeholder="O+ / A+ / B- / AB+" />
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs text-muted-foreground">Status Istithaah</Label>
+                <select className={FIELD_CLASS} value={f.statusIstithaah ?? "Belum Dinilai"} onChange={(e) => set("statusIstithaah", e.target.value)}>
+                  <option value="Belum Dinilai">Belum Dinilai</option>
+                  <option value="Laik">Laik</option>
+                  <option value="Bersyarat">Bersyarat</option>
+                  <option value="Tidak Laik">Tidak Laik</option>
+                </select>
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs text-muted-foreground">Tanggal Berangkat</Label>
+                <input type="date" className={FIELD_CLASS} value={f.tanggalBerangkat ?? ""} onChange={(e) => set("tanggalBerangkat", e.target.value)} />
+              </div>
+              <div className="sm:col-span-2">
+                <Label className="mb-1 block text-xs text-muted-foreground">Riwayat Penyakit</Label>
+                <input className={FIELD_CLASS} value={f.riwayatPenyakit ?? ""} onChange={(e) => set("riwayatPenyakit", e.target.value)} placeholder="Hipertensi, DM tipe 2" />
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs text-muted-foreground">Riwayat Operasi</Label>
+                <input className={FIELD_CLASS} value={f.riwayatOperasi ?? ""} onChange={(e) => set("riwayatOperasi", e.target.value)} placeholder="Appendectomy 2010" />
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs text-muted-foreground">Alergi</Label>
+                <input className={FIELD_CLASS} value={f.alergi ?? ""} onChange={(e) => set("alergi", e.target.value)} placeholder="Penisilin / makanan laut" />
+              </div>
+              <div className="sm:col-span-2">
+                <Label className="mb-1 block text-xs text-muted-foreground">Obat Rutin</Label>
+                <input className={FIELD_CLASS} value={f.obatRutin ?? ""} onChange={(e) => set("obatRutin", e.target.value)} placeholder="Amlodipine 10mg, Metformin 1000mg" />
               </div>
             </div>
           </div>

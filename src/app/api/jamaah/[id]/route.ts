@@ -55,6 +55,16 @@ export async function PUT(
       kabupatenKota: body.kabupatenKota ?? existing.kabupatenKota,
       puskesmas: body.puskesmas ?? existing.puskesmas,
       dokterKeluarga: body.dokterKeluarga ?? existing.dokterKeluarga,
+      paspor: body.paspor !== undefined ? (body.paspor || null) : existing.paspor,
+      embarkasi: body.embarkasi !== undefined ? (body.embarkasi || null) : existing.embarkasi,
+      golDarah: body.golDarah !== undefined ? (body.golDarah || null) : existing.golDarah,
+      riwayatPenyakit: body.riwayatPenyakit !== undefined ? (body.riwayatPenyakit || null) : existing.riwayatPenyakit,
+      riwayatOperasi: body.riwayatOperasi !== undefined ? (body.riwayatOperasi || null) : existing.riwayatOperasi,
+      alergi: body.alergi !== undefined ? (body.alergi || null) : existing.alergi,
+      obatRutin: body.obatRutin !== undefined ? (body.obatRutin || null) : existing.obatRutin,
+      statusIstithaah: body.statusIstithaah !== undefined ? (body.statusIstithaah || null) : existing.statusIstithaah,
+      tanggalBerangkat: body.tanggalBerangkat !== undefined ? (body.tanggalBerangkat ? new Date(body.tanggalBerangkat) : null) : existing.tanggalBerangkat,
+      tanggalPulang: body.tanggalPulang !== undefined ? (body.tanggalPulang ? new Date(body.tanggalPulang) : null) : existing.tanggalPulang,
     },
   });
   return NextResponse.json({ jamaah: serializeJamaah(updated) });

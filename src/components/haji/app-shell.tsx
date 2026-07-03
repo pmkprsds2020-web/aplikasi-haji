@@ -41,7 +41,7 @@ export function AppShell() {
               <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                 <HeartPulse className="h-4 w-4" />
               </span>
-              <span className="text-sm font-bold">SiPulang Haji</span>
+              <span className="text-sm font-bold">SiHaji Care</span>
             </div>
             <ThemeToggle />
           </header>
@@ -71,7 +71,7 @@ export function AppShell() {
       {/* Footer sticky */}
       <footer className="mt-auto border-t border-border bg-card px-4 py-3 text-center text-xs text-muted-foreground">
         <p>
-          <span className="font-semibold text-foreground">SiPulang Haji</span> — Monitoring Kepulangan Jamaah Haji ·
+          <span className="font-semibold text-foreground">SiHaji Care</span> — Electronic Hajj Health Record ·
           Pendekatan Biopsikososial Spiritual Kedokteran Keluarga ·
           <span className="ml-1">Panduan Kemenkes RI</span>
         </p>
@@ -120,8 +120,8 @@ function SidebarContent() {
           <HeartPulse className="h-5 w-5" />
         </span>
         <div>
-          <p className="text-sm font-bold leading-tight">SiPulang Haji</p>
-          <p className="text-xs text-sidebar-foreground/60">Monitoring Pasca Haji</p>
+          <p className="text-sm font-bold leading-tight">SiHaji Care</p>
+          <p className="text-xs text-sidebar-foreground/60">EHHR · Pra → Pasca Haji</p>
         </div>
       </div>
 

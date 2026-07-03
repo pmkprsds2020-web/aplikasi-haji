@@ -72,6 +72,16 @@ export async function POST(req: NextRequest) {
         kabupatenKota: body.kabupatenKota ?? "",
         puskesmas: body.puskesmas ?? "",
         dokterKeluarga: body.dokterKeluarga ?? "",
+        paspor: body.paspor ?? null,
+        embarkasi: body.embarkasi ?? null,
+        golDarah: body.golDarah ?? null,
+        riwayatPenyakit: body.riwayatPenyakit ?? null,
+        riwayatOperasi: body.riwayatOperasi ?? null,
+        alergi: body.alergi ?? null,
+        obatRutin: body.obatRutin ?? null,
+        statusIstithaah: body.statusIstithaah ?? "Belum Dinilai",
+        tanggalBerangkat: body.tanggalBerangkat ? new Date(body.tanggalBerangkat) : null,
+        tanggalPulang: body.tanggalPulang ? new Date(body.tanggalPulang) : null,
       },
     });
     await recomputeAndSaveRisk(created.id);

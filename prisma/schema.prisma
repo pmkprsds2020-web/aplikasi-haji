@@ -1,5 +1,6 @@
-// Prisma schema — Monitoring Kepulangan Jamaah Haji
+// Prisma schema — SiHaji Care (Electronic Hajj Health Record)
 // Pendekatan Biopsikososial Spiritual Kedokteran Keluarga
+// Siklus: Pra Haji → Selama Haji → Pasca Haji
 
 generator client {
   provider = "prisma-client-js"
@@ -10,7 +11,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Data dasar jamaah haji
+// Data dasar jamaah haji — Electronic Hajj Health Record (EHHR)
 model Jamaah {
   id        String   @id @default(cuid())
   nama      String
@@ -23,43 +24,67 @@ model Jamaah {
   hp        String
   kontakKeluarga String
 
-  // Data kepulangan
+  // Data kepulangan (Pasca Haji)
   tanggalTiba     DateTime
   bandara         String
   kabupatenKota   String
   puskesmas       String
   dokterKeluarga  String
 
-  // Risiko hasil agregat (dihitung ulang tiap skrining)
+  // Profil EHHR tambahan
+  paspor          String?
+  embarkasi       String?
+  golDarah        String? // A|B|AB|O dengan rhesus
+  riwayatPenyakit String?
+  riwayatOperasi  String?
+  alergi          String?
+  obatRutin       String?
+  statusIstithaah String? @default("Belum Dinilai") // Laik|Bersyarat|Tidak Laik|Belum Dinilai
+  tanggalBerangkat DateTime?
+  tanggalPulang   DateTime?
+
+  // Risiko hasil agregat pasca haji (dihitung ulang tiap skrining)
   riskLevel String @default("HIJAU") // HIJAU | KUNING | MERAH
   riskSummary String @default("")
 
+  // Relasi Pasca Haji
   screenings  Screening[]
   vitalSigns  VitalSign[]
+
+  // Relasi Pra Haji
+  preHajjVitals        PreHajjVital[]
+  preHajjLabs          PreHajjLab[]
+  preHajjScreenings    PreHajjScreening[]
+  preHajjMedications   PreHajjMedication[]
+  preHajjImmunizations PreHajjImmunization[]
+  preHajjFitness       PreHajjFitness[]
+  preHajjAiAssessments PreHajjAiAssessment[]
+  preHajjChronic       PreHajjChronic?
+  preHajjEducation     PreHajjEducation?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-// Skrining fleksibel — menyimpan semua 14 modul skrining
-// jenis: INFECTIOUS | CHRONIC | FRAILTY | FALL_RISK | NUTRITION |
-//        MENTAL | SLEEP | ACTIVITY | SPIRITUAL | FAMILY_APGAR | FOLLOWUP
+// ===== PASCA HAJI =====
+
+// Skrining fleksibel — menyimpan semua modul skrining pasca haji
 model Screening {
   id        String   @id @default(cuid())
   jamaahId  String
   jamaah    Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
   jenis     String
-  data      String   // JSON string: jawaban skrining spesifik per jenis
-  skor      String?  // hasil/skor terhitung (mis. "Robust", "Tinggi", angka PHQ-9)
+  data      String   // JSON string
+  skor      String?
   catatan   String?
-  hariKe    Int      @default(1) // hari monitoring ke- (1/7/14/30)
+  hariKe    Int      @default(1) // 1/7/14/30/90
   createdAt DateTime @default(now())
 
   @@index([jamaahId, jenis])
   @@index([jenis, hariKe])
 }
 
-// Tanda vital berkala dengan tren grafik otomatis
+// Tanda vital berkala pasca haji
 model VitalSign {
   id         String   @id @default(cuid())
   jamaahId   String
@@ -77,4 +102,164 @@ model VitalSign {
   createdAt  DateTime @default(now())
 
   @@index([jamaahId, hariKe])
+}
+
+// ===== PRA HAJI =====
+
+// Tanda vital pra haji (serial, dengan TB & lingkar perut untuk BMI)
+model PreHajjVital {
+  id            String   @id @default(cuid())
+  jamaahId      String
+  jamaah        Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
+  tdSistolik    Int?
+  tdDiastolik   Int?
+  nadi          Int?
+  rr            Int?
+  suhu          Float?
+  spo2          Float?
+  beratBadan    Float?
+  tinggiBadan   Float?
+  lingkarPerut  Float?
+  catatan       String?
+  createdAt     DateTime @default(now())
+
+  @@index([jamaahId])
+}
+
+// Hasil laboratorium pra haji
+model PreHajjLab {
+  id           String   @id @default(cuid())
+  jamaahId     String
+  jamaah       Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
+  hb           Float?
+  gdp          Float?
+  gd2pp        Float?
+  hba1c        Float?
+  kolesterol   Float?
+  hdl          Float?
+  ldl          Float?
+  trigliserida Float?
+  asamUrat     Float?
+  sgot         Float?
+  sgpt         Float?
+  kreatinin    Float?
+  egfr         Float?
+  urinalisis   String?
+  catatan      String?
+  createdAt    DateTime @default(now())
+
+  @@index([jamaahId])
+}
+
+// Monitoring penyakit kronis pra haji (satu record per jamaah)
+model PreHajjChronic {
+  id           String   @id @default(cuid())
+  jamaahId     String   @unique
+  jamaah       Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
+  hipertensi   String   @default("Tidak") // Tidak|Terkontrol|Tidak Terkontrol
+  diabetes     String   @default("Tidak")
+  ppok         String   @default("Tidak")
+  ckd          String   @default("Tidak")
+  jantung      String   @default("Tidak")
+  stroke       String   @default("Tidak")
+  kanker       String   @default("Tidak")
+  obatRutin    String?
+  targetTerapi String?
+  updatedAt    DateTime @updatedAt
+
+  @@index([jamaahId])
+}
+
+// Skrining pra haji (FRAIL, MNA, Mini Cog, Morse, Barthel, PHQ-9, GAD-7, APGAR, IPAQ, WHOQOL)
+model PreHajjScreening {
+  id        String   @id @default(cuid())
+  jamaahId  String
+  jamaah    Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
+  jenis     String   // FRAIL|MNA|MINICOG|MORSE|BARTHEL|PHQ9|GAD7|APGAR|IPAQ|WHOQOL
+  data      String   // JSON string
+  skor      String?
+  catatan   String?
+  createdAt DateTime @default(now())
+
+  @@index([jamaahId, jenis])
+}
+
+// Daftar obat pra haji
+model PreHajjMedication {
+  id        String   @id @default(cuid())
+  jamaahId  String
+  jamaah    Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
+  namaObat  String
+  dosis     String?
+  frekuensi String?
+  indikasi  String?
+  catatan   String?
+  createdAt DateTime @default(now())
+
+  @@index([jamaahId])
+}
+
+// Imunisasi pra haji (Meningitis, Influenza, COVID, Pneumokokus, Hepatitis)
+model PreHajjImmunization {
+  id            String   @id @default(cuid())
+  jamaahId      String
+  jamaah        Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
+  jenis         String   // MENINGITIS|INFLUENZA|COVID|PNEUMOKOKUS|HEPATITIS
+  tanggalVaksin DateTime?
+  nomorBatch    String?
+  catatan       String?
+  createdAt     DateTime @default(now())
+
+  @@index([jamaahId])
+}
+
+// Kebugaran / aktivitas fisik pra haji
+model PreHajjFitness {
+  id            String   @id @default(cuid())
+  jamaahId      String
+  jamaah        Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
+  targetLangkah Int?
+  jalanKaki     Int?     // menit
+  aerobik       Int?     // menit
+  kekuatan      Int?     // menit
+  pernafasan    Int?     // menit
+  catatan       String?
+  createdAt     DateTime @default(now())
+
+  @@index([jamaahId])
+}
+
+// Checklist edukasi pra haji (satu record per jamaah)
+model PreHajjEducation {
+  id                   String   @id @default(cuid())
+  jamaahId             String   @unique
+  jamaah               Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
+  diet                Boolean  @default(false)
+  aktivitas            Boolean  @default(false)
+  obat                 Boolean  @default(false)
+  hidrasi              Boolean  @default(false)
+  istirahat            Boolean  @default(false)
+  manajemenKronis      Boolean  @default(false)
+  persiapanPerjalanan  Boolean  @default(false)
+  catatan              String?
+  updatedAt            DateTime @updatedAt
+
+  @@index([jamaahId])
+}
+
+// AI Assessment pra haji (hasil LLM tersimpan)
+model PreHajjAiAssessment {
+  id                 String   @id @default(cuid())
+  jamaahId           String
+  jamaah             Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
+  ringkasan          String
+  faktorRisiko       String   // JSON array
+  kesiapanBerangkat  String   // Siap|Bersyarat|Belum Siap
+  rekomendasi        String   // JSON array
+  soap               String?
+  resumeMedis        String?
+  suratRujukan       String?
+  createdAt          DateTime @default(now())
+
+  @@index([jamaahId])
 }

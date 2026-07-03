@@ -78,11 +78,12 @@ export function DashboardView() {
               <Sparkles className="h-3 w-3" /> Pendekatan Biopsikososial Spiritual
             </div>
             <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
-              Dashboard Monitoring Kepulangan Jamaah Haji
+              Dashboard SiHaji Care
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Pantau kesehatan jamaah 14–30 hari pasca kepulangan: deteksi dini penyakit menular,
-              kontrol penyakit kronis, frailty lansia, kesehatan mental, spiritual & dukungan keluarga.
+              Electronic Hajj Health Record — satu rekam kesehatan jamaah dari Pra Haji hingga Pasca Haji.
+              Pantau deteksi dini penyakit menular, kontrol penyakit kronis, frailty lansia,
+              kesehatan mental, spiritual & dukungan keluarga.
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={bumpRefresh} disabled={loading}>

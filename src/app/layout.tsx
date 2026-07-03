@@ -16,10 +16,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SiPulang Haji — Monitoring Kepulangan Jamaah Haji",
-  description: "Platform monitoring pasca kepulangan jamaah haji berbasis pendekatan biopsikososial spiritual kedokteran keluarga. Deteksi dini penyakit menular, penyakit kronis, frailty lansia, kesehatan mental, spiritual, dan dukungan keluarga.",
+  title: "SiHaji Care — Electronic Hajj Health Record",
+  description: "Electronic Hajj Health Record (EHHR) — satu rekam kesehatan jamaah haji dari Pra Haji hingga Pasca Haji. Pendekatan biopsikososial spiritual kedokteran keluarga: deteksi dini penyakit menular, kontrol penyakit kronis, frailty lansia, kesehatan mental, spiritual & dukungan keluarga.",
   keywords: ["jamaah haji", "monitoring pasca haji", "kedokteran keluarga", "biopsikososial spiritual", "skrining kesehatan", "frailty", "PHQ-9", "GAD-7"],
-  authors: [{ name: "SiPulang Haji" }],
+  authors: [{ name: "SiHaji Care" }],
   icons: {
     icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
   },
