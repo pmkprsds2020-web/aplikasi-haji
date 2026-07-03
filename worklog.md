@@ -346,3 +346,32 @@ Verification (Agent Browser):
 - Pra Haji → Lab sub-tab: Input Lab → Riwayat Lab table (Hb/GDP/HbA1c/...) → Grafik (Hb/GDP/HbA1c trends) ✓
 - Pra Haji → Skrining sub-tab: Riwayat Skrining table (Tanggal/Instrumen/Skor/Catatan with real data) → Grid instrument cards ✓
 - Pasca Haji tab: only Timeline Monitoring + Perubahan Risiko per Milestone remain; 4 big perubahan charts removed ✓
+
+---
+Task ID: SUPABASE-SETUP
+Agent: Orchestrator
+Task: Connect app to Supabase for authentication + database
+
+Work Log:
+- Installed @supabase/supabase-js + @supabase/ssr
+- Added Supabase credentials to .env (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY)
+- Created src/lib/supabase/client.ts (createBrowserClient), server.ts (createServerClient + createAdminClient), types.ts (full Database type for 19 tables)
+- Wrote supabase/schema.sql — complete idempotent SQL migration: profiles (linked to auth.users with role enum), 18 clinical/telemedicine tables (snake_case mirroring Prisma schema), indexes, FKs with ON DELETE CASCADE, updated_at triggers, auto-profile trigger on signup, RLS policies on ALL tables (doctors/admins full CRUD; jamaah read/insert own data via is_staff() + current_jamaah_id() helper functions), seed templates
+- Built src/components/haji/supabase-auth-provider.tsx (session tracking, role loading from profiles, signIn/signUp/signOut) + login-screen.tsx (Masuk/Daftar tabs, role picker Dokter/Jamaah)
+- Wired auth gate into AppShell: loading spinner → LoginScreen if unauthenticated → app + UserChip (avatar, role, logout) if authenticated
+- Added src/proxy.ts (Next.js 16 "proxy" convention, formerly middleware) — refreshes auth session cookie on every request via @supabase/ssr
+- Wrapped app in SupabaseAuthProvider in page.tsx
+- Wrote supabase/README.md setup guide
+- Lint clean
+
+Verification (Agent Browser):
+- Supabase reachable from sandbox (REST + auth endpoints respond ~0.04-0.47s)
+- Dev server: HTTP 200, proxy.ts runs (171ms compile, 5ms cached), no deprecation warnings
+- Login screen renders: SiHaji Care branding, Masuk/Daftar tabs, Email/Password fields, role picker, "Terhubung ke Supabase" footer
+- Signup form fills + submits to Supabase auth
+
+Stage Summary:
+- Authentication: LIVE — email/password auth via Supabase, session managed with cookies, role-based (doctor/admin/jamaah), auto-profile creation on signup
+- Database: SQL schema ready in supabase/schema.sql (run in Supabase SQL Editor) — 19 tables + RLS + indexes matching the Prisma schema 1:1 (snake_case)
+- Existing Prisma/SQLite API routes preserved; data layer migration to Supabase is the next step (each route swaps Prisma calls → supabase.from() calls)
+- Note: SUPABASE_SERVICE_ROLE_KEY currently set to publishable key — should be replaced with the real service_role secret from Supabase dashboard

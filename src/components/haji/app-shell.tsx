@@ -3,8 +3,9 @@
 import * as React from "react";
 import {
   LayoutDashboard, Users, CalendarClock, Sparkles, Moon, Sun,
-  HeartPulse, Stethoscope, type LucideIcon,
+  HeartPulse, Stethoscope, Loader2, LogOut, type LucideIcon,
 } from "lucide-react";
+import type { User } from "@supabase/supabase-js";
 import { useApp, type ViewName } from "@/lib/store";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,8 @@ import { JamaahDetailView } from "./jamaah-detail-view";
 import { MonitoringView } from "./monitoring-view";
 import { AiView } from "./ai-view";
 import { TelemedicineView } from "./telemedicine/telemedicine-view";
+import { useSupabaseAuth } from "./supabase-auth-provider";
+import { LoginScreen } from "./login-screen";
 
 const NAV: { view: ViewName; label: string; icon: LucideIcon; desc: string }[] = [
   { view: "dashboard", label: "Dashboard", icon: LayoutDashboard, desc: "Ringkasan & risiko" },
@@ -26,6 +29,23 @@ const NAV: { view: ViewName; label: string; icon: LucideIcon; desc: string }[] =
 
 export function AppShell() {
   const { view, telemedicineJamaahId } = useApp();
+  const { user, loading, signOut, role } = useSupabaseAuth();
+
+  // Auth gate: show login screen if not authenticated
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm">Memuat SiHaji Care…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen />;
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -45,7 +65,10 @@ export function AppShell() {
               </span>
               <span className="text-sm font-bold">SiHaji Care</span>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-1.5">
+              <ThemeToggle />
+              <UserChip user={user} role={role} onSignOut={signOut} compact />
+            </div>
           </header>
 
           {/* Desktop top bar */}
@@ -55,7 +78,10 @@ export function AppShell() {
                 {NAV.find((n) => n.view === (view === "detail" ? "jamaah" : view))?.label ?? "Dashboard"}
               </h2>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              <UserChip user={user} role={role} onSignOut={signOut} />
+              <ThemeToggle />
+            </div>
           </header>
 
           <main className="flex-1 p-4 sm:p-6">
@@ -191,5 +217,60 @@ function ThemeToggle() {
     >
       {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </Button>
+  );
+}
+
+function UserChip({
+  user,
+  role,
+  onSignOut,
+  compact,
+}: {
+  user: User;
+  role: string | null;
+  onSignOut: () => void;
+  compact?: boolean;
+}) {
+  const name =
+    (user.user_metadata?.full_name as string) || user.email?.split("@")[0] || "Pengguna";
+  const initials = name
+    .split(" ")
+    .slice(0, 2)
+    .map((s) => s[0]?.toUpperCase())
+    .join("");
+  if (compact) {
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onSignOut}
+        className="h-9 w-9"
+        title={`Keluar (${name})`}
+      >
+        <LogOut className="h-4 w-4" />
+      </Button>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-border bg-accent/30 px-2.5 py-1.5">
+      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+        {initials}
+      </span>
+      <div className="min-w-0">
+        <p className="max-w-[140px] truncate text-xs font-medium leading-tight">{name}</p>
+        <p className="text-[10px] capitalize leading-tight text-muted-foreground">
+          {role ?? "pengguna"}
+        </p>
+      </div>
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onSignOut}
+        className="h-7 w-7 shrink-0"
+        title="Keluar"
+      >
+        <LogOut className="h-3.5 w-3.5" />
+      </Button>
+    </div>
   );
 }
