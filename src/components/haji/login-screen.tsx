@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, HeartPulse, LogIn, UserPlus, ShieldCheck } from "lucide-react";
-import { useSupabaseAuth } from "./supabase-auth-provider";
+import { useSupabaseAuth, ROLE_LABELS, type UserRole } from "@/contexts/supabase-auth-context";
 import { toast } from "sonner";
 
 export function LoginScreen() {
@@ -14,7 +14,7 @@ export function LoginScreen() {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [fullName, setFullName] = React.useState("");
-  const [role, setRole] = React.useState<"doctor" | "jamaah">("doctor");
+  const [role, setRole] = React.useState<UserRole>("petugas");
   const [loading, setLoading] = React.useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -133,29 +133,22 @@ export function LoginScreen() {
             {mode === "signup" && (
               <div>
                 <Label className="mb-1.5 block text-xs font-medium text-muted-foreground">Peran</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setRole("doctor")}
-                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${
-                      role === "doctor"
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border hover:border-primary/40"
-                    }`}
-                  >
-                    <ShieldCheck className="h-4 w-4" /> Dokter
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRole("jamaah")}
-                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${
-                      role === "jamaah"
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border hover:border-primary/40"
-                    }`}
-                  >
-                    <HeartPulse className="h-4 w-4" /> Jamaah
-                  </button>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {(["petugas", "admin", "kepala_klinik", "pj_mutu", "viewer", "jamaah"] as UserRole[]).map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setRole(r)}
+                      className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${
+                        role === r
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border hover:border-primary/40"
+                      }`}
+                    >
+                      {r === "jamaah" ? <HeartPulse className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
+                      {ROLE_LABELS[r]}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}

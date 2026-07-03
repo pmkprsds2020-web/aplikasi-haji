@@ -16,7 +16,7 @@ import { JamaahDetailView } from "./jamaah-detail-view";
 import { MonitoringView } from "./monitoring-view";
 import { AiView } from "./ai-view";
 import { TelemedicineView } from "./telemedicine/telemedicine-view";
-import { useSupabaseAuth } from "./supabase-auth-provider";
+import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
 import { LoginScreen } from "./login-screen";
 
 const NAV: { view: ViewName; label: string; icon: LucideIcon; desc: string }[] = [

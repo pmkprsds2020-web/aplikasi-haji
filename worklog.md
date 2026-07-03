@@ -375,3 +375,55 @@ Stage Summary:
 - Database: SQL schema ready in supabase/schema.sql (run in Supabase SQL Editor) — 19 tables + RLS + indexes matching the Prisma schema 1:1 (snake_case)
 - Existing Prisma/SQLite API routes preserved; data layer migration to Supabase is the next step (each route swaps Prisma calls → supabase.from() calls)
 - Note: SUPABASE_SERVICE_ROLE_KEY currently set to publishable key — should be replaced with the real service_role secret from Supabase dashboard
+
+---
+Task ID: ENTERPRISE-ARCH-COMPLIANCE
+Agent: Enterprise Software Architect
+Task: Bring project into compliance with 27-chapter Architecture Standard
+
+Audit Results (Chapters 21-23):
+- No localStorage/sessionStorage/dummy/mock data found (✅)
+- 30 files use Prisma (Chapter 3 violation — Supabase must be ONLY db)
+- Tables lacked created_by/updated_by/deleted_at/is_active (Chapter 3)
+- RLS used IF NOT EXISTS (Chapter 4 violation)
+- Roles limited to doctor/jamaah (Chapter 26 requires 6+ staff roles)
+- No audit_log table (Chapter 11)
+
+Remediation Delivered:
+1. Rewrote supabase/schema.sql (production-ready):
+   - 20 tables with 7 standard columns (id UUID, created_at, updated_at, created_by, updated_by, deleted_at, is_active)
+   - Soft delete (deleted_at + is_active) on all tables
+   - audit_log table + log_audit() trigger on every INSERT/UPDATE/DELETE
+   - set_meta_on_insert/update triggers (auto-set created_by/updated_by from auth.uid())
+   - Multi-role CHECK constraint (super_admin/admin/kepala_klinik/pj_mutu/petugas/viewer/jamaah)
+   - 80 RLS policies using DROP IF EXISTS + CREATE pattern (Chapter 4)
+   - Helper functions: is_staff(), is_super_admin(), current_jamaah_id()
+   - CHECK constraints on all ranges (usia, TD, SpO2, gula darah, roles, statuses)
+   - Idempotent
+
+2. Scaffolded mandated architecture (Chapter 2: UI→Service→Repository→Supabase):
+   - src/repositories/base.repository.ts — generic CRUD (create/bulk/findById/findMany/update/softDelete/bulkDelete/restore/hardDelete) + pagination/search/sort/filter + structured logging (Chapter 16)
+   - src/repositories/jamaah.repository.ts — typed Jamaah repository
+   - src/services/jamaah.service.ts — business logic + requireStaff() authorization + audit logging
+   - src/lib/response.ts — standardized {success, message, data, error} (Chapter 15)
+   - src/lib/audit.ts + audit-client.ts — audit loggers (Chapter 11)
+   - src/contexts/supabase-auth-context.tsx — multi-role auth + isStaff/isSuperAdmin
+   - src/hooks/use-auth.ts — convenience hook
+   - src/app/api/supabase/jamaah/ — reference API (GET/POST/PUT/DELETE)
+
+3. Migrated Jamaah module end-to-end to Supabase (reference implementation for remaining 17 modules)
+
+4. Updated auth for 7 roles (Chapter 26 healthcare multi-role)
+
+Verification:
+- Lint: 0 errors
+- Type-check: 0 errors in new architecture (75 pre-existing in Prisma seed/components — to be resolved during migration)
+- supabase/COMPLIANCE.md documents full audit + remaining roadmap
+
+Remaining (documented in COMPLIANCE.md):
+- Migrate 17 remaining tables from Prisma to Supabase repositories (follow Jamaah pattern)
+- Rewire UI to /api/supabase/* endpoints; remove Prisma + SQLite
+- Import/Export Excel/PDF (Chapter 12)
+- Audit log UI
+- Testing suite (Chapter 20)
+- Deployment configs (Chapter 24)
