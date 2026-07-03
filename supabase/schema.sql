@@ -28,6 +28,18 @@ drop type if exists public.user_role cascade;
 -- ============================================================================
 -- 0. HELPER FUNCTIONS
 -- ============================================================================
+-- NOTE: We DROP each function first because CREATE OR REPLACE cannot change
+-- the return type of an existing function (e.g. current_jamaah_id changed
+-- from `text` to `uuid` between schema versions). DROP CASCADE also removes
+-- any dependent triggers/policies cleanly so they can be recreated below.
+
+drop function if exists public.is_staff() cascade;
+drop function if exists public.is_super_admin() cascade;
+drop function if exists public.current_jamaah_id() cascade;
+drop function if exists public.handle_new_user() cascade;
+drop function if exists public.set_meta_on_insert() cascade;
+drop function if exists public.set_meta_on_update() cascade;
+drop function if exists public.log_audit() cascade;
 
 -- Is the current user a staff member (can manage clinical data)?
 create or replace function public.is_staff()
