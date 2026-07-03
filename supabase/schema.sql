@@ -28,10 +28,12 @@ drop type if exists public.user_role cascade;
 -- ============================================================================
 -- 0. HELPER FUNCTIONS
 -- ============================================================================
--- NOTE: We DROP each function first because CREATE OR REPLACE cannot change
--- the return type of an existing function (e.g. current_jamaah_id changed
--- from `text` to `uuid` between schema versions). DROP CASCADE also removes
--- any dependent triggers/policies cleanly so they can be recreated below.
+-- NOTE: Functions that reference tables (is_staff, is_super_admin,
+-- current_jamaah_id) are defined AFTER those tables are created, because
+-- LANGUAGE sql functions validate their queries at creation time.
+-- The generic meta/audit functions (which don't reference specific tables
+-- at parse time — they use TG_* variables) are defined after audit_log.
+-- We DROP all functions first so re-runs cleanly recreate them.
 
 drop function if exists public.is_staff() cascade;
 drop function if exists public.is_super_admin() cascade;
@@ -41,39 +43,9 @@ drop function if exists public.set_meta_on_insert() cascade;
 drop function if exists public.set_meta_on_update() cascade;
 drop function if exists public.log_audit() cascade;
 
--- Is the current user a staff member (can manage clinical data)?
-create or replace function public.is_staff()
-returns boolean
-language sql
-security definer set search_path = public
-as $$
-  select coalesce(
-    (select role in ('super_admin','admin','kepala_klinik','pj_mutu','petugas')
-     from public.profiles where id = auth.uid()),
-    false
-  );
-$$;
-
--- Is the current user a super admin?
-create or replace function public.is_super_admin()
-returns boolean
-language sql
-security definer set search_path = public
-as $$
-  select coalesce(
-    (select role = 'super_admin' from public.profiles where id = auth.uid()),
-    false
-  );
-$$;
-
--- The current user's linked jamaah id (if they are a patient)
-create or replace function public.current_jamaah_id()
-returns uuid
-language sql
-security definer set search_path = public
-as $$
-  select id from public.jamaah where user_id = auth.uid() and deleted_at is null limit 1;
-$$;
+-- is_staff(), is_super_admin(), current_jamaah_id() are defined later,
+-- after the profiles and jamaah tables exist. See "TABLE-DEPENDENT
+-- HELPER FUNCTIONS" section below.
 
 -- ============================================================================
 -- 1. PROFILES (linked to auth.users) — multi-role
@@ -268,6 +240,44 @@ create trigger trg_jamaah_meta_upd before update on public.jamaah
 drop trigger if exists trg_jamaah_audit on public.jamaah;
 create trigger trg_jamaah_audit after insert or update or delete on public.jamaah
   for each row execute function public.log_audit();
+
+-- TABLE-DEPENDENT HELPER FUNCTIONS
+-- Defined here (after profiles + jamaah tables) because LANGUAGE sql
+-- functions validate their queries at creation time.
+
+-- Is the current user a staff member (can manage clinical data)?
+create or replace function public.is_staff()
+returns boolean
+language sql
+security definer set search_path = public
+as $$
+  select coalesce(
+    (select role in ('super_admin','admin','kepala_klinik','pj_mutu','petugas')
+     from public.profiles where id = auth.uid()),
+    false
+  );
+$$;
+
+-- Is the current user a super admin?
+create or replace function public.is_super_admin()
+returns boolean
+language sql
+security definer set search_path = public
+as $$
+  select coalesce(
+    (select role = 'super_admin' from public.profiles where id = auth.uid()),
+    false
+  );
+$$;
+
+-- The current user's linked jamaah id (if they are a patient)
+create or replace function public.current_jamaah_id()
+returns uuid
+language sql
+security definer set search_path = public
+as $$
+  select id from public.jamaah where user_id = auth.uid() and deleted_at is null limit 1;
+$$;
 
 -- ============================================================================
 -- 5. PASCA HAJI — Screening & VitalSign
