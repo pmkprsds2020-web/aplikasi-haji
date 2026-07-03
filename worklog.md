@@ -311,3 +311,21 @@ Stage Summary:
 - AI auto-alerts on threshold breach (SpO₂<94→RED, TD≥180→RED, GDP≥250→ORANGE, etc.)
 - Smart Telemonitoring, AI Summary, templates, dashboard widgets all built
 - Chat Jamaah button on detail page → opens telemedicine with jamaah pre-selected
+
+---
+Task ID: TTV-LAYOUT-FIX
+Agent: Orchestrator
+Task: Fix TTV history table & chart placement (Pra Haji + Pasca Haji)
+
+Work Log:
+- Pra Haji TtvSubView: swapped order — Riwayat TTV table now on TOP, PreHajjVitalsChart BELOW (was chart-then-table)
+- Pasca Haji TTV sub-tab: added full Riwayat TTV Pasca Haji table (Waktu, Hari, TD, Nadi, RR, Suhu, SpO₂, BB, GD, Catatan) on TOP, VitalSignsChart BELOW (previously only chart, no table)
+- Added Table/CardHeader/CardTitle imports + formatTanggalWaktu to detail view
+- Fixed duplicate formatTanggal import error
+- Updated sub-tab label "TTV & Grafik" → "TTV"
+- Input TTV/Skrining/Riwayat buttons remain accessible (Input TTV in header bar, Skrining buttons per instrument, Riwayat Singkat tab)
+- Lint clean
+
+Verification (Agent Browser):
+- Pra Haji → TTV sub-tab: Input TTV button → Riwayat TTV table (Tanggal/TD/Nadi/RR/Suhu/SpO₂/BB/LP) → Grafik (Tekanan Darah, Suhu & SpO₂, BB & Lingkar Perut) ✓
+- Pasca Haji → TTV sub-tab: Input TTV button → Riwayat TTV Pasca Haji table (Waktu/Hari/TD/Nadi/RR/Suhu/SpO₂/BB/GD/Catatan with real data) → Grafik tren ✓

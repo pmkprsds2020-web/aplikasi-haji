@@ -421,7 +421,6 @@ export function TtvSubView({ jamaahId, bundle, onChanged }: SubViewProps) {
           <Plus className="mr-2 h-4 w-4" /> Input TTV
         </Button>
       </div>
-      <PreHajjVitalsChart vitals={bundle.vitals} />
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">Riwayat TTV</CardTitle>
@@ -430,7 +429,7 @@ export function TtvSubView({ jamaahId, bundle, onChanged }: SubViewProps) {
           {sorted.length === 0 ? (
             <EmptyState icon={Activity} title="Belum ada data TTV" desc="Input tanda vital untuk melihat tren." />
           ) : (
-            <div className="max-h-96 overflow-y-auto">
+            <div className="max-h-96 overflow-y-auto scrollbar-thin">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -463,6 +462,7 @@ export function TtvSubView({ jamaahId, bundle, onChanged }: SubViewProps) {
           )}
         </CardContent>
       </Card>
+      <PreHajjVitalsChart vitals={bundle.vitals} />
       <PreHajjVitalDialog jamaahId={jamaahId} open={open} onOpenChange={setOpen} onSaved={onChanged} />
     </div>
   );

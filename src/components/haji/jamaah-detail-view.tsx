@@ -2,13 +2,16 @@
 
 import * as React from "react";
 import {
-  Card, CardContent,
+  Card, CardContent, CardHeader, CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
+} from "@/components/ui/table";
 import {
   ArrowLeft, User, Plane, Activity, History, Sparkles, Pencil,
   Phone, MapPin, Calendar, Stethoscope, Users, ShieldCheck, MessageCircle,
@@ -275,7 +278,7 @@ export function JamaahDetailView() {
                     onClick={() => setPascaTab(t)}
                     className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition ${pascaTab === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"}`}
                   >
-                    {t === "overview" ? "Ringkasan" : t === "ttv" ? "TTV & Grafik" : t === "screening" ? "Skrining" : "Riwayat Singkat"}
+                    {t === "overview" ? "Ringkasan" : t === "ttv" ? "TTV" : t === "screening" ? "Skrining" : "Riwayat Singkat"}
                   </button>
                 ))}
                 <div className="ml-auto flex gap-1.5">
@@ -381,7 +384,59 @@ function PascaSubContent({
   }
 
   if (tab === "ttv") {
-    return <VitalSignsChart vitals={detail.vitalSigns} />;
+    const sorted = [...detail.vitalSigns].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    return (
+      <div className="space-y-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Riwayat TTV Pasca Haji</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {sorted.length === 0 ? (
+              <EmptyState icon={Activity} title="Belum ada data TTV" desc="Klik 'Input TTV' untuk mencatat tanda vital pasca haji." />
+            ) : (
+              <div className="max-h-96 overflow-y-auto scrollbar-thin">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-xs">Waktu</TableHead>
+                      <TableHead className="text-xs">Hari</TableHead>
+                      <TableHead className="text-xs">TD</TableHead>
+                      <TableHead className="text-xs">Nadi</TableHead>
+                      <TableHead className="text-xs">RR</TableHead>
+                      <TableHead className="text-xs">Suhu</TableHead>
+                      <TableHead className="text-xs">SpO₂</TableHead>
+                      <TableHead className="text-xs">BB</TableHead>
+                      <TableHead className="text-xs">GD</TableHead>
+                      <TableHead className="text-xs">Catatan</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sorted.map((v) => (
+                      <TableRow key={v.id}>
+                        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatTanggalWaktu(v.createdAt)}</TableCell>
+                        <TableCell className="text-xs">H{v.hariKe}</TableCell>
+                        <TableCell className="text-xs tabular-nums">{v.tdSistolik != null && v.tdDiastolik != null ? `${v.tdSistolik}/${v.tdDiastolik}` : "—"}</TableCell>
+                        <TableCell className="text-xs tabular-nums">{v.nadi ?? "—"}</TableCell>
+                        <TableCell className="text-xs tabular-nums">{v.rr ?? "—"}</TableCell>
+                        <TableCell className="text-xs tabular-nums">{v.suhu != null ? v.suhu.toFixed(1) : "—"}</TableCell>
+                        <TableCell className="text-xs tabular-nums">{v.spo2 != null ? v.spo2.toFixed(0) : "—"}</TableCell>
+                        <TableCell className="text-xs tabular-nums">{v.beratBadan ?? "—"}</TableCell>
+                        <TableCell className="text-xs tabular-nums">{v.gulaDarah ?? "—"}</TableCell>
+                        <TableCell className="max-w-[160px] truncate text-xs text-muted-foreground">{v.catatan ?? "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <VitalSignsChart vitals={detail.vitalSigns} />
+      </div>
+    );
   }
 
   if (tab === "screening") {
