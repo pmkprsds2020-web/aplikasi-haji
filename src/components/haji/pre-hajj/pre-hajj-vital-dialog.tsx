@@ -9,7 +9,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Save, Activity } from "lucide-react";
 import { toast } from "sonner";
+import { createClient } from "@/lib/supabase/client";
 import { NumberField } from "../shared";
+
+const num = (v: string | undefined): number | null => {
+  if (!v || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
 
 interface Props {
   jamaahId: string;
@@ -52,32 +59,36 @@ export function PreHajjVitalDialog({ jamaahId, open, onOpenChange, onSaved }: Pr
   async function handleSave() {
     setSaving(true);
     try {
-      const payload: Record<string, unknown> = {
-        tdSistolik: vals.tdSistolik ? Number(vals.tdSistolik) : null,
-        tdDiastolik: vals.tdDiastolik ? Number(vals.tdDiastolik) : null,
-        nadi: vals.nadi ? Number(vals.nadi) : null,
-        rr: vals.rr ? Number(vals.rr) : null,
-        suhu: vals.suhu ? Number(vals.suhu) : null,
-        spo2: vals.spo2 ? Number(vals.spo2) : null,
-        beratBadan: vals.beratBadan ? Number(vals.beratBadan) : null,
-        tinggiBadan: vals.tinggiBadan ? Number(vals.tinggiBadan) : null,
-        lingkarPerut: vals.lingkarPerut ? Number(vals.lingkarPerut) : null,
-        catatan,
+      const supabase = createClient();
+      const payload = {
+        jamaah_id: jamaahId,
+        td_sistolik: num(vals.tdSistolik),
+        td_diastolik: num(vals.tdDiastolik),
+        nadi: num(vals.nadi),
+        rr: num(vals.rr),
+        suhu: num(vals.suhu),
+        spo2: num(vals.spo2),
+        berat_badan: num(vals.beratBadan),
+        tinggi_badan: num(vals.tinggiBadan),
+        lingkar_perut: num(vals.lingkarPerut),
+        catatan: catatan || null,
       };
-      const res = await fetch(`/api/jamaah/${jamaahId}/pre-haji/vital`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error ?? "Gagal menyimpan tanda vital pra haji");
+      console.log("Saving to Supabase...");
+      console.log("Payload:", payload);
+      const { data, error } = await supabase.from("pre_hajj_vital").insert(payload);
+      console.log("Supabase Response:", data);
+      console.log("Supabase Error:", error);
+      if (error) {
+        console.error("[PreHajjVital] INSERT failed:", error);
+        toast.error(`Gagal menyimpan: ${error.message}`);
+        return;
       }
       toast.success("Tanda vital pra haji tersimpan");
       onSaved();
       onOpenChange(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal menyimpan");
+    } catch (err) {
+      console.error("[PreHajjVital] Exception:", err);
+      toast.error(`Exception: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSaving(false);
     }

@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Loader2, Save, Info } from "lucide-react";
 import { toast } from "sonner";
+import { createClient } from "@/lib/supabase/client";
 import { PRE_HAJJ_SCREENING_META } from "@/lib/pre-hajj-types";
 import type { PreHajjScreeningJenis } from "@/lib/pre-hajj-types";
 import {
@@ -142,21 +143,30 @@ export function PreHajjScreeningDialog({ jamaahId, jenis, open, onOpenChange, on
   async function handleSave() {
     setSaving(true);
     try {
-      const payload = { jenis, data, skor, catatan };
-      const res = await fetch(`/api/jamaah/${jamaahId}/pre-haji/screening`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error ?? "Gagal menyimpan skrining pra haji");
+      const supabase = createClient();
+      const payload = {
+        jamaah_id: jamaahId,
+        jenis,
+        data: JSON.stringify(data),
+        skor,
+        catatan: catatan.trim() || null,
+      };
+      console.log("Saving to Supabase...");
+      console.log("Payload:", payload);
+      const { data: resData, error } = await supabase.from("pre_hajj_screening").insert(payload);
+      console.log("Supabase Response:", resData);
+      console.log("Supabase Error:", error);
+      if (error) {
+        console.error("[PreHajjScreening] INSERT failed:", error);
+        toast.error(`Gagal menyimpan: ${error.message}`);
+        return;
       }
       toast.success(`Skrining ${meta.judul} tersimpan — skor: ${skor}`);
       onSaved();
       onOpenChange(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal menyimpan");
+    } catch (err) {
+      console.error("[PreHajjScreening] Exception:", err);
+      toast.error(`Exception: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSaving(false);
     }

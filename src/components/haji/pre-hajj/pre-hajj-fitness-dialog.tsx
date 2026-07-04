@@ -8,7 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Save, Footprints } from "lucide-react";
 import { toast } from "sonner";
+import { createClient } from "@/lib/supabase/client";
 import { NumberField, SectionLabel } from "../shared";
+
+const num = (v: string | undefined): number | null => {
+  if (!v || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
 
 interface Props {
   jamaahId: string;
@@ -34,28 +41,32 @@ export function PreHajjFitnessDialog({ jamaahId, open, onOpenChange, onSaved }: 
   async function handleSave() {
     setSaving(true);
     try {
-      const payload: Record<string, unknown> = {
-        targetLangkah: vals.targetLangkah ? Number(vals.targetLangkah) : null,
-        jalanKaki: vals.jalanKaki ? Number(vals.jalanKaki) : null,
-        aerobik: vals.aerobik ? Number(vals.aerobik) : null,
-        kekuatan: vals.kekuatan ? Number(vals.kekuatan) : null,
-        pernafasan: vals.pernafasan ? Number(vals.pernafasan) : null,
+      const supabase = createClient();
+      const payload = {
+        jamaah_id: jamaahId,
+        target_langkah: num(vals.targetLangkah),
+        jalan_kaki: num(vals.jalanKaki),
+        aerobik: num(vals.aerobik),
+        kekuatan: num(vals.kekuatan),
+        pernafasan: num(vals.pernafasan),
         catatan: catatan.trim() || null,
       };
-      const res = await fetch(`/api/jamaah/${jamaahId}/pre-haji/fitness`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error ?? "Gagal menyimpan kebugaran");
+      console.log("Saving to Supabase...");
+      console.log("Payload:", payload);
+      const { data, error } = await supabase.from("pre_hajj_fitness").insert(payload);
+      console.log("Supabase Response:", data);
+      console.log("Supabase Error:", error);
+      if (error) {
+        console.error("[PreHajjFitness] INSERT failed:", error);
+        toast.error(`Gagal menyimpan: ${error.message}`);
+        return;
       }
       toast.success("Catatan kebugaran tersimpan");
       onSaved();
       onOpenChange(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal menyimpan");
+    } catch (err) {
+      console.error("[PreHajjFitness] Exception:", err);
+      toast.error(`Exception: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSaving(false);
     }

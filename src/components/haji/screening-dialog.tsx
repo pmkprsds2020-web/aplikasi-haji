@@ -143,20 +143,32 @@ export function ScreeningDialog({ jamaahId, jenis, open, onOpenChange, onSaved }
   async function handleSave() {
     setSaving(true);
     try {
-      const res = await fetch(`/api/jamaah/${jamaahId}/screening`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jenis, data, skor, catatan, hariKe: Number(hariKe) }),
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error ?? "Gagal menyimpan skrining");
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
+      const payload = {
+        jamaah_id: jamaahId,
+        jenis,
+        data: JSON.stringify(data),
+        skor,
+        catatan: catatan || null,
+        hari_ke: Number(hariKe),
+      };
+      console.log("Saving Screening to Supabase...");
+      console.log("Payload:", payload);
+      const { data: resData, error } = await supabase.from("screening").insert(payload);
+      console.log("Supabase Response:", resData);
+      console.log("Supabase Error:", error);
+      if (error) {
+        console.error("[Screening] INSERT failed:", error);
+        toast.error(`Gagal menyimpan skrining: ${error.message}`);
+        return;
       }
-      toast.success(`Skrining ${meta.judul} tersimpan — skor: ${skor}`);
+      toast.success(`Skrining ${meta.judul} tersimpan di Supabase — skor: ${skor}`);
       onSaved();
       onOpenChange(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal menyimpan");
+    } catch (err) {
+      console.error("[Screening] Exception:", err);
+      toast.error(`Exception: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSaving(false);
     }

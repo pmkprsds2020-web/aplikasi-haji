@@ -8,7 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Save, TestTube } from "lucide-react";
 import { toast } from "sonner";
+import { createClient } from "@/lib/supabase/client";
 import { NumberField, SectionLabel } from "../shared";
+
+const num = (v: string | undefined): number | null => {
+  if (!v || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
 
 interface Props {
   jamaahId: string;
@@ -42,38 +49,41 @@ export function PreHajjLabDialog({ jamaahId, open, onOpenChange, onSaved }: Prop
   async function handleSave() {
     setSaving(true);
     try {
-      const num = (k: string) => (vals[k] && vals[k] !== "" ? Number(vals[k]) : null);
-      const payload: Record<string, unknown> = {
-        hb: num("hb"),
-        gdp: num("gdp"),
-        gd2pp: num("gd2pp"),
-        hba1c: num("hba1c"),
-        kolesterol: num("kolesterol"),
-        hdl: num("hdl"),
-        ldl: num("ldl"),
-        trigliserida: num("trigliserida"),
-        asamUrat: num("asamUrat"),
-        sgot: num("sgot"),
-        sgpt: num("sgpt"),
-        kreatinin: num("kreatinin"),
-        egfr: num("egfr"),
+      const supabase = createClient();
+      const payload = {
+        jamaah_id: jamaahId,
+        hb: num(vals.hb),
+        gdp: num(vals.gdp),
+        gd2pp: num(vals.gd2pp),
+        hba1c: num(vals.hba1c),
+        kolesterol: num(vals.kolesterol),
+        hdl: num(vals.hdl),
+        ldl: num(vals.ldl),
+        trigliserida: num(vals.trigliserida),
+        asam_urat: num(vals.asamUrat),
+        sgot: num(vals.sgot),
+        sgpt: num(vals.sgpt),
+        kreatinin: num(vals.kreatinin),
+        egfr: num(vals.egfr),
         urinalisis: urinalisis.trim() || null,
         catatan: catatan.trim() || null,
       };
-      const res = await fetch(`/api/jamaah/${jamaahId}/pre-haji/lab`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error ?? "Gagal menyimpan hasil lab");
+      console.log("Saving to Supabase...");
+      console.log("Payload:", payload);
+      const { data, error } = await supabase.from("pre_hajj_lab").insert(payload);
+      console.log("Supabase Response:", data);
+      console.log("Supabase Error:", error);
+      if (error) {
+        console.error("[PreHajjLab] INSERT failed:", error);
+        toast.error(`Gagal menyimpan: ${error.message}`);
+        return;
       }
       toast.success("Hasil lab pra haji tersimpan");
       onSaved();
       onOpenChange(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal menyimpan");
+    } catch (err) {
+      console.error("[PreHajjLab] Exception:", err);
+      toast.error(`Exception: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSaving(false);
     }

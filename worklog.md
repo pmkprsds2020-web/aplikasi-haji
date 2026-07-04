@@ -713,3 +713,51 @@ Stage Summary:
 - Ringkasan enriched with kepulangan info (tanggal pulang, lama perjalanan, hari pasca, diagnosis, monitoring summary)
 - Lab sub-tab added (new — was not present before)
 - Existing data preserved — no database/routing changes
+
+---
+Task ID: SUPABASE-FIX-PREHAJJ
+Agent: Frontend Developer (Pra Hajj Supabase Migration)
+Task: Fix all pre-hajj input dialogs to INSERT directly to Supabase instead of Prisma API routes
+
+Work Log:
+- Read worklog.md for full context (EHHR-2/3 backend+frontend, RBAC, schema.sql + schema-simple.sql + FIX-RLS-INSERT.sql). Confirmed child tables `pre_hajj_*` in `supabase/schema-simple.sql` use `jamaah_id text` (no FK) so the Prisma cuid `jamaahId` passed in from the detail view can be inserted directly. Verified RLS policies in FIX-RLS-INSERT.sql allow any authenticated user to INSERT/SELECT/UPDATE/DELETE on all `pre_hajj_*` tables.
+- Verified `@/lib/supabase/client` exports `createClient()` (browser client via `@supabase/ssr`) — already used by `src/components/haji/jamaah-views/jamaah-chat.tsx` so import path/pattern is established.
+- Verified `eslint.config.mjs` has `no-unused-vars` and `@typescript-eslint/no-unused-vars` both OFF — safe to leave `jamaahId` unused in `*List` delete handlers (Props contract unchanged for parent callers).
+- Edited 10 files in `src/components/haji/pre-hajj/` — for each file replaced the `fetch('/api/jamaah/${jamaahId}/pre-haji/...')` call with direct Supabase client call, added `createClient` import, kept the same UI/dialog structure intact, added try/catch with `console.error` + `toast.error(error.message)` + `console.log` of payload/response/error for debugging:
+  1. `pre-hajj-vital-dialog.tsx` — `supabase.from("pre_hajj_vital").insert({...})` with snake_case fields (td_sistolik, td_diastolik, nadi, rr, suhu, spo2, berat_badan, tinggi_badan, lingkar_perut, catatan). Added module-level `num()` helper for safe string→number|null coercion.
+  2. `pre-hajj-lab-dialog.tsx` — `supabase.from("pre_hajj_lab").insert({...})` with hb, gdp, gd2pp, hba1c, kolesterol, hdl, ldl, trigliserida, asam_urat, sgot, sgpt, kreatinin, egfr, urinalisis, catatan. Added module-level `num()` helper (replaced the inner `const num = (k) => ...` closure).
+  3. `pre-hajj-screening-dialog.tsx` — `supabase.from("pre_hajj_screening").insert({...})` with jamaah_id, jenis, data: `JSON.stringify(data)` (column is `text`), skor, catatan. Renamed destructured `data` → `resData` to avoid shadowing the `data` state variable.
+  4. `pre-hajj-medication-dialog.tsx` — `supabase.from("pre_hajj_medication").insert({...})` with nama_obat, dosis, frekuensi, indikasi, catatan. Kept the "Nama obat wajib diisi" early-return guard.
+  5. `pre-hajj-medication-list.tsx` — `supabase.from("pre_hajj_medication").delete().eq("id", id)` replacing DELETE fetch. `jamaahId` is now unused in the destructure but kept in Props interface (callers still pass it; `no-unused-vars` is OFF).
+  6. `pre-hajj-immunization-dialog.tsx` — `supabase.from("pre_hajj_immunization").insert({...})` with jenis, tanggal_vaksin (converted to ISO string via `new Date(tanggalVaksin).toISOString()` since column is `timestamptz`), nomor_batch, catatan.
+  7. `pre-hajj-immunization-list.tsx` — `supabase.from("pre_hajj_immunization").delete().eq("id", id)` replacing DELETE fetch.
+  8. `pre-hajj-fitness-dialog.tsx` — `supabase.from("pre_hajj_fitness").insert({...})` with target_langkah, jalan_kaki, aerobik, kekuatan, pernafasan, catatan. Added module-level `num()` helper.
+  9. `pre-hajj-chronic-form.tsx` — `supabase.from("pre_hajj_chronic").upsert({...}, { onConflict: "jamaah_id" })` with hipertensi/diabetes/ppok/ckd/jantung/stroke/kanker (each defaulted to "Tidak" when undefined), obat_rutin, target_terapi. Uses upsert because the table has `unique(jamaah_id)` and form is editable (PUT semantics).
+  10. `pre-hajj-education-form.tsx` — `supabase.from("pre_hajj_education").upsert({...}, { onConflict: "jamaah_id" })` with diet, aktivitas, obat, hidrasi, istirahat, manajemen_kronis, persiapan_perjalanan (camelCase state keys → snake_case DB cols), catatan: null. Uses upsert because of `unique(jamaah_id)`.
+- Pattern applied consistently in every handleSave/handleDelete:
+  * `const supabase = createClient();`
+  * Build payload with snake_case column names + `jamaah_id: jamaahId` (Prisma cuid — text column accepts it)
+  * `console.log("Saving to Supabase..."); console.log("Payload:", payload);`
+  * `const { data, error } = await supabase.from("TABLE").insert|upsert|delete(...)`
+  * `console.log("Supabase Response:", data); console.log("Supabase Error:", error);`
+  * `if (error) { console.error("[Tag] OP failed:", error); toast.error(\`Gagal ...: ${error.message}\`); return; }`
+  * `catch (err) { console.error("[Tag] Exception:", err); toast.error(\`Exception: ${err instanceof Error ? err.message : String(err)}\`); }`
+  * `finally { setSaving/setDeleting(false); }`
+- Ran `bun run lint` → exit code 0, no errors, no warnings.
+- Ran `bunx tsc --noEmit` and grepped for `pre-hajj` → 0 type errors in any of the 10 modified files (pre-existing tsc errors elsewhere out of scope).
+
+Stage Summary:
+- 10 files modified in `src/components/haji/pre-hajj/`:
+  * pre-hajj-vital-dialog.tsx (insert pre_hajj_vital)
+  * pre-hajj-lab-dialog.tsx (insert pre_hajj_lab)
+  * pre-hajj-screening-dialog.tsx (insert pre_hajj_screening)
+  * pre-hajj-medication-dialog.tsx (insert pre_hajj_medication)
+  * pre-hajj-medication-list.tsx (delete pre_hajj_medication)
+  * pre-hajj-immunization-dialog.tsx (insert pre_hajj_immunization)
+  * pre-hajj-immunization-list.tsx (delete pre_hajj_immunization)
+  * pre-hajj-fitness-dialog.tsx (insert pre_hajj_fitness)
+  * pre-hajj-chronic-form.tsx (upsert pre_hajj_chronic on jamaah_id)
+  * pre-hajj-education-form.tsx (upsert pre_hajj_education on jamaah_id)
+- All dialogs/lists now bypass Prisma API routes and INSERT/UPSERT/DELETE directly via `@/lib/supabase/client` browser client. UI/UX unchanged (same fields, same dialog layout, same toast messages in Indonesian).
+- Lint (`bun run lint`): PASS exit code 0. TypeScript (`bunx tsc --noEmit`): 0 errors in any modified pre-hajj file.
+- Note for orchestrator: the corresponding `/api/jamaah/[id]/pre-haji/*` Prisma routes (vital/lab/screening/medication/immunization/fitness/chronic/education) are now dead code from the UI perspective but were NOT deleted in this task — they may still be referenced by other callers (e.g. server-side fetches, AI assessment route). Cleanup is a separate decision. The pre-hajj AI assessment + GET bundle routes still rely on Prisma and are out of scope for this task.

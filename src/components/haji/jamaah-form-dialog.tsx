@@ -57,23 +57,50 @@ export function JamaahFormDialog({ open, onOpenChange, onSaved, initial }: Props
     }
     setSaving(true);
     try {
-      const url = isEdit ? `/api/jamaah/${initial!.id}` : "/api/jamaah";
-      const method = isEdit ? "PUT" : "POST";
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(f),
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error ?? "Gagal menyimpan data jamaah");
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
+      const payload = {
+        nama: f.nama, nik: f.nik, kloter: f.kloter, porsi: f.porsi,
+        usia: Number(f.usia), kelamin: f.kelamin,
+        alamat: f.alamat ?? "", hp: f.hp ?? "",
+        kontak_keluarga: f.kontakKeluarga ?? "",
+        tanggal_tiba: f.tanggalTiba ? new Date(f.tanggalTiba).toISOString() : new Date().toISOString(),
+        bandara: f.bandara ?? "", kabupaten_kota: f.kabupatenKota ?? "",
+        puskesmas: f.puskesmas ?? "", dokter_keluarga: f.dokterKeluarga ?? "",
+        paspor: f.paspor || null, embarkasi: f.embarkasi || null,
+        gol_darah: f.golDarah || null,
+        riwayat_penyakit: f.riwayatPenyakit || null,
+        riwayat_operasi: f.riwayatOperasi || null,
+        alergi: f.alergi || null, obat_rutin: f.obatRutin || null,
+        status_istithaah: f.statusIstithaah || "Belum Dinilai",
+        tanggal_berangkat: f.tanggalBerangkat ? new Date(f.tanggalBerangkat).toISOString() : null,
+        tanggal_pulang: f.tanggalPulang ? new Date(f.tanggalPulang).toISOString() : null,
+      };
+      console.log("Saving Jamaah to Supabase...");
+      console.log("Payload:", payload);
+      let resData: Record<string, unknown> | null = null;
+      let error: unknown = null;
+      if (isEdit && initial) {
+        const r = await supabase.from("jamaah").update(payload).eq("id", initial.id).select("*").single();
+        resData = r.data; error = r.error;
+      } else {
+        const r = await supabase.from("jamaah").insert(payload).select("*").single();
+        resData = r.data; error = r.error;
       }
-      const { jamaah } = await res.json();
-      toast.success(isEdit ? "Data jamaah diperbarui" : "Jamaah baru ditambahkan");
-      onSaved(jamaah);
+      console.log("Supabase Response:", resData);
+      console.log("Supabase Error:", error);
+      if (error) {
+        console.error("[JamaahForm] save failed:", error);
+        const errMsg = (error as { message?: string }).message ?? String(error);
+        toast.error(`Gagal menyimpan: ${errMsg}`);
+        return;
+      }
+      toast.success(isEdit ? "Data jamaah diperbarui di Supabase" : "Jamaah baru ditambahkan ke Supabase");
+      onSaved(resData as unknown as { id: string; nama: string; riskLevel: string; riskSummary: string });
       onOpenChange(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal menyimpan");
+    } catch (err) {
+      console.error("[JamaahForm] Exception:", err);
+      toast.error(`Exception: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSaving(false);
     }

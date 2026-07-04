@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Save, GraduationCap, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
+import { createClient } from "@/lib/supabase/client";
 import type { PreHajjEducationData } from "@/lib/pre-hajj-types";
 
 interface Props {
@@ -42,20 +43,35 @@ export function PreHajjEducationForm({ jamaahId, education, onSaved }: Props) {
   async function handleSave() {
     setSaving(true);
     try {
-      const payload = { ...vals };
-      const res = await fetch(`/api/jamaah/${jamaahId}/pre-haji/education`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error ?? "Gagal menyimpan edukasi");
+      const supabase = createClient();
+      const payload = {
+        jamaah_id: jamaahId,
+        diet: !!vals.diet,
+        aktivitas: !!vals.aktivitas,
+        obat: !!vals.obat,
+        hidrasi: !!vals.hidrasi,
+        istirahat: !!vals.istirahat,
+        manajemen_kronis: !!vals.manajemenKronis,
+        persiapan_perjalanan: !!vals.persiapanPerjalanan,
+        catatan: null,
+      };
+      console.log("Saving to Supabase...");
+      console.log("Payload:", payload);
+      const { data, error } = await supabase
+        .from("pre_hajj_education")
+        .upsert(payload, { onConflict: "jamaah_id" });
+      console.log("Supabase Response:", data);
+      console.log("Supabase Error:", error);
+      if (error) {
+        console.error("[PreHajjEducation] UPSERT failed:", error);
+        toast.error(`Gagal menyimpan: ${error.message}`);
+        return;
       }
       toast.success(`Edukasi tersimpan — ${done}/7 selesai`);
       onSaved();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal menyimpan");
+    } catch (err) {
+      console.error("[PreHajjEducation] Exception:", err);
+      toast.error(`Exception: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSaving(false);
     }

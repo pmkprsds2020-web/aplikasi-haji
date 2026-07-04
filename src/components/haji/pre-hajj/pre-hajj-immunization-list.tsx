@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Syringe, Trash2, Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
+import { createClient } from "@/lib/supabase/client";
 import { formatTanggal } from "@/lib/format";
 import type { PreHajjImmunizationData } from "@/lib/pre-hajj-types";
 import { EmptyState } from "../shared";
@@ -31,15 +32,21 @@ export function PreHajjImmunizationList({ jamaahId, immunizations, onChanged }: 
   async function handleDelete(id: string, jenis: string) {
     setDeleting(id);
     try {
-      const res = await fetch(`/api/jamaah/${jamaahId}/pre-haji/immunization/${id}`, { method: "DELETE" });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error ?? "Gagal menghapus imunisasi");
+      const supabase = createClient();
+      console.log("Deleting immunization from Supabase, id:", id);
+      const { data, error } = await supabase.from("pre_hajj_immunization").delete().eq("id", id);
+      console.log("Supabase Response:", data);
+      console.log("Supabase Error:", error);
+      if (error) {
+        console.error("[PreHajjImmunization] DELETE failed:", error);
+        toast.error(`Gagal menghapus: ${error.message}`);
+        return;
       }
       toast.success(`Imunisasi ${jenis} dihapus`);
       onChanged();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal menghapus");
+    } catch (err) {
+      console.error("[PreHajjImmunization] Exception:", err);
+      toast.error(`Exception: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setDeleting(null);
     }

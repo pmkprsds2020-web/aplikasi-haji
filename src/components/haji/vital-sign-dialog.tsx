@@ -44,20 +44,42 @@ export function VitalSignDialog({ jamaahId, open, onOpenChange, onSaved }: Props
   async function handleSave() {
     setSaving(true);
     try {
-      const res = await fetch(`/api/jamaah/${jamaahId}/vital`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...vals, hariKe: Number(hariKe), catatan }),
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error ?? "Gagal menyimpan tanda vital");
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
+      const num = (v: string | undefined): number | null => {
+        if (!v || v === "") return null;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      };
+      const payload = {
+        jamaah_id: jamaahId,
+        td_sistolik: num(vals.tdSistolik),
+        td_diastolik: num(vals.tdDiastolik),
+        nadi: num(vals.nadi),
+        rr: num(vals.rr),
+        suhu: num(vals.suhu),
+        spo2: num(vals.spo2),
+        berat_badan: num(vals.beratBadan),
+        gula_darah: num(vals.gulaDarah),
+        hari_ke: Number(hariKe),
+        catatan: catatan || null,
+      };
+      console.log("Saving TTV to Supabase...");
+      console.log("Payload:", payload);
+      const { data, error } = await supabase.from("vital_sign").insert(payload);
+      console.log("Supabase Response:", data);
+      console.log("Supabase Error:", error);
+      if (error) {
+        console.error("[VitalSign] INSERT failed:", error);
+        toast.error(`Gagal menyimpan TTV: ${error.message}`);
+        return;
       }
-      toast.success("Tanda vital tersimpan");
+      toast.success("Tanda vital tersimpan di Supabase");
       onSaved();
       onOpenChange(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal menyimpan");
+    } catch (err) {
+      console.error("[VitalSign] Exception:", err);
+      toast.error(`Exception: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSaving(false);
     }

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Loader2, Save, Syringe } from "lucide-react";
 import { toast } from "sonner";
+import { createClient } from "@/lib/supabase/client";
 
 interface Props {
   jamaahId: string;
@@ -48,26 +49,30 @@ export function PreHajjImmunizationDialog({ jamaahId, open, onOpenChange, onSave
   async function handleSave() {
     setSaving(true);
     try {
+      const supabase = createClient();
       const payload = {
+        jamaah_id: jamaahId,
         jenis,
-        tanggalVaksin: tanggalVaksin || null,
-        nomorBatch: nomorBatch.trim() || null,
+        tanggal_vaksin: tanggalVaksin ? new Date(tanggalVaksin).toISOString() : null,
+        nomor_batch: nomorBatch.trim() || null,
         catatan: catatan.trim() || null,
       };
-      const res = await fetch(`/api/jamaah/${jamaahId}/pre-haji/immunization`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error ?? "Gagal menyimpan imunisasi");
+      console.log("Saving to Supabase...");
+      console.log("Payload:", payload);
+      const { data, error } = await supabase.from("pre_hajj_immunization").insert(payload);
+      console.log("Supabase Response:", data);
+      console.log("Supabase Error:", error);
+      if (error) {
+        console.error("[PreHajjImmunization] INSERT failed:", error);
+        toast.error(`Gagal menyimpan: ${error.message}`);
+        return;
       }
       toast.success(`Imunisasi ${jenis} tersimpan`);
       onSaved();
       onOpenChange(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal menyimpan");
+    } catch (err) {
+      console.error("[PreHajjImmunization] Exception:", err);
+      toast.error(`Exception: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSaving(false);
     }
