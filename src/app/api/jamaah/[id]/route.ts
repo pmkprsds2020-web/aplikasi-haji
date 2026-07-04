@@ -4,6 +4,7 @@ import {
   serializeJamaah,
   serializeScreening,
   serializeVital,
+  serializePascaHajjLab,
 } from "@/lib/serialize";
 
 // GET /api/jamaah/[id] — detail jamaah lengkap
@@ -17,6 +18,7 @@ export async function GET(
     include: {
       screenings: { orderBy: { createdAt: "desc" } },
       vitalSigns: { orderBy: { createdAt: "desc" } },
+      pascaHajjLabs: { orderBy: { createdAt: "desc" } },
     },
   });
   if (!j) return NextResponse.json({ error: "Jamaah tidak ditemukan" }, { status: 404 });
@@ -25,6 +27,7 @@ export async function GET(
       ...serializeJamaah(j),
       screenings: j.screenings.map(serializeScreening),
       vitalSigns: j.vitalSigns.map(serializeVital),
+      pascaHajjLabs: j.pascaHajjLabs.map(serializePascaHajjLab),
     },
   });
 }

@@ -78,10 +78,32 @@ export interface VitalSignData {
   createdAt: string;
 }
 
+// Hasil lab pasca haji
+export interface PascaHajjLabData {
+  id: string;
+  jamaahId: string;
+  hb: number | null;
+  leukosit: number | null;
+  gdp: number | null;
+  gd2pp: number | null;
+  hba1c: number | null;
+  kolesterol: number | null;
+  ldl: number | null;
+  hdl: number | null;
+  trigliserida: number | null;
+  sgot: number | null;
+  sgpt: number | null;
+  ureum: number | null;
+  kreatinin: number | null;
+  catatan: string | null;
+  createdAt: string;
+}
+
 // Detail jamaah lengkap dengan semua skrining & TTV
 export interface JamaahDetail extends JamaahData {
   screenings: ScreeningData[];
   vitalSigns: VitalSignData[];
+  pascaHajjLabs: PascaHajjLabData[];
 }
 
 export interface RiskFlag {

@@ -16,6 +16,7 @@ import {
   ArrowLeft, User, Plane, Activity, History, Sparkles, Pencil,
   Phone, MapPin, Calendar, Stethoscope, Users, ShieldCheck, MessageCircle,
   LayoutDashboard, TestTube, ClipboardList, HeartPulse, Pill,
+  Plus, Save, Loader2,
   type LucideIcon,
 } from "lucide-react";
 import { useApp, type DetailMainTab } from "@/lib/store";
@@ -27,11 +28,16 @@ import { computeCompleteness, completenessBadge, istithaahStyle } from "@/lib/co
 import { ProfilTab } from "./profil-tab";
 import { RiwayatTab } from "./riwayat-tab";
 import { PascaTimeline, PascaTrendCharts } from "./pasca-haji-enhancements";
+import { toast } from "sonner";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { JamaahFormDialog } from "./jamaah-form-dialog";
 import { ScreeningDialog } from "./screening-dialog";
 import { VitalSignDialog } from "./vital-sign-dialog";
 import { VitalSignsChart } from "./vital-signs-chart";
-import type { JamaahDetail, JenisSkrining, RiskFlag } from "@/lib/types";
+import type { JamaahDetail, JenisSkrining, RiskFlag, PascaHajjLabData } from "@/lib/types";
 import type { PreHajjBundle, PreHajjSubTab } from "@/lib/pre-hajj-types";
 import { PRE_HAJJ_SUBTABS } from "@/lib/pre-hajj-types";
 import { getIcon } from "./pre-hajj/pre-hajj-sub-views-utils";
@@ -309,6 +315,7 @@ export function JamaahDetailView() {
                 riskFlags={riskFlags}
                 onOpenScreening={(jenis) => setScreeningOpen(jenis)}
                 onGoScreening={() => setPascaTab("skrining")}
+                onChanged={load}
               />
             </CardContent>
           </Card>
@@ -346,13 +353,14 @@ export function JamaahDetailView() {
 
 // Sub-content Pasca Haji (refactored dari view lama)
 function PascaSubContent({
-  tab, detail, riskFlags, onOpenScreening, onGoScreening,
+  tab, detail, riskFlags, onOpenScreening, onGoScreening, onChanged,
 }: {
   tab: string;
   detail: JamaahDetail;
   riskFlags: RiskFlag[];
   onOpenScreening: (jenis: JenisSkrining) => void;
   onGoScreening: () => void;
+  onChanged: () => void;
 }) {
   // ===== 1. RINGKASAN — overview kepulangan =====
   if (tab === "ringkasan" || tab === "overview") {
@@ -508,7 +516,7 @@ function PascaSubContent({
 
   // ===== 4. LAB — hasil laboratorium pasca haji =====
   if (tab === "lab") {
-    return <PascaLabView detail={detail} />;
+    return <PascaLabView detail={detail} onChanged={onChanged} />;
   }
 
   // ===== 5. SKRINING =====
@@ -537,31 +545,309 @@ function InfoBox({
 }
 
 // ===== Pasca Lab View — hasil lab pasca haji dengan badge =====
-function PascaLabView({ detail }: { detail: JamaahDetail }) {
-  // Pasca haji labs come from the pre_hajj_lab table (lab results are shared).
-  // In a full migration, pasca haji would have its own lab table. For now,
-  // we display the lab results linked to this jamaah.
-  // Note: detail doesn't include preHajjLabs directly, so we show a placeholder
-  // with a note that labs are in the Pra Haji tab. But per the prompt, we should
-  // show lab results here. Since the jamaah detail from the API includes preHajj
-  // data, we can use it if available. However, the JamaahDetail type only has
-  // screenings + vitalSigns for pasca haji. For now, show empty state with guidance.
+// ===== Lab reference ranges for Normal/Borderline/Abnormal badges =====
+const LAB_RANGES: Record<string, { min: number; max: number; unit: string; label: string }> = {
+  hb: { min: 12, max: 17, unit: "g/dL", label: "Hb" },
+  leukosit: { min: 4, max: 11, unit: "ribu/μL", label: "Leukosit" },
+  gdp: { min: 70, max: 125, unit: "mg/dL", label: "GDP" },
+  gd2pp: { min: 70, max: 145, unit: "mg/dL", label: "GD 2PP" },
+  hba1c: { min: 4, max: 5.7, unit: "%", label: "HbA1c" },
+  kolesterol: { min: 0, max: 200, unit: "mg/dL", label: "Kolesterol" },
+  ldl: { min: 0, max: 130, unit: "mg/dL", label: "LDL" },
+  hdl: { min: 40, max: 100, unit: "mg/dL", label: "HDL" },
+  trigliserida: { min: 0, max: 150, unit: "mg/dL", label: "Trigliserida" },
+  sgot: { min: 0, max: 35, unit: "U/L", label: "SGOT" },
+  sgpt: { min: 0, max: 35, unit: "U/L", label: "SGPT" },
+  ureum: { min: 15, max: 40, unit: "mg/dL", label: "Ureum" },
+  kreatinin: { min: 0.6, max: 1.3, unit: "mg/dL", label: "Kreatinin" },
+};
+
+function labBadge(value: number | null, key: string): React.ReactNode {
+  if (value == null) return <span className="text-xs text-muted-foreground">—</span>;
+  const r = LAB_RANGES[key];
+  if (!r) return <span className="text-xs">{value}</span>;
+  const normal = value >= r.min && value <= r.max;
+  const borderline = value >= r.min * 0.85 && value <= r.max * 1.15;
+  return (
+    <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+      normal
+        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+        : borderline
+        ? "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
+        : "bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300"
+    }`}>
+      {normal ? "Normal" : borderline ? "Borderline" : "Abnormal"}
+    </span>
+  );
+}
+
+// ===== Pasca Lab View — table + input button + badges =====
+function PascaLabView({ detail, onChanged }: { detail: JamaahDetail; onChanged: () => void }) {
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+  const labs = detail.pascaHajjLabs ?? [];
+  const sorted = [...labs].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+
   return (
     <div className="space-y-3">
-      <div className="rounded-lg border border-border/50 bg-accent/20 p-3">
-        <p className="text-sm font-medium">Hasil Laboratorium Pasca Haji</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Hasil laboratorium pasca haji akan ditampilkan di sini. Saat ini, data laboratorium
-          tersimpan di tab <strong>Pra Haji → Lab</strong>. Untuk melihat hasil lab, silakan
-          buka tab Pra Haji.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium">Hasil Laboratorium Pasca Haji</p>
+          <p className="text-xs text-muted-foreground">{labs.length} pemeriksaan tercatat</p>
+        </div>
+        <Button size="sm" onClick={() => setDialogOpen(true)}>
+          <Plus className="mr-1 h-3.5 w-3.5" /> Input Lab
+        </Button>
       </div>
-      <EmptyState
-        icon={TestTube}
-        title="Belum ada data lab pasca haji"
-        desc="Hasil laboratorium pasca haji akan muncul di sini setelah diinput oleh dokter."
+
+      {sorted.length === 0 ? (
+        <EmptyState
+          icon={TestTube}
+          title="Belum ada data lab pasca haji"
+          desc="Klik 'Input Lab' untuk mencatat hasil laboratorium pasca haji."
+        />
+      ) : (
+        <div className="max-h-[420px] overflow-auto scrollbar-thin rounded-lg border border-border/60">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="text-xs">Tanggal</TableHead>
+                <TableHead className="text-xs">Hb</TableHead>
+                <TableHead className="text-xs">Leukosit</TableHead>
+                <TableHead className="text-xs">GDP</TableHead>
+                <TableHead className="text-xs">GD2PP</TableHead>
+                <TableHead className="text-xs">HbA1c</TableHead>
+                <TableHead className="text-xs">Kol</TableHead>
+                <TableHead className="text-xs">LDL</TableHead>
+                <TableHead className="text-xs">HDL</TableHead>
+                <TableHead className="text-xs">TG</TableHead>
+                <TableHead className="text-xs">SGOT</TableHead>
+                <TableHead className="text-xs">SGPT</TableHead>
+                <TableHead className="text-xs">Ureum</TableHead>
+                <TableHead className="text-xs">Kreat</TableHead>
+                <TableHead className="text-xs">Catatan</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sorted.map((l) => (
+                <TableRow key={l.id}>
+                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                    {formatTanggal(l.createdAt)}
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="tabular-nums">{l.hb ?? "—"}</span>
+                      {labBadge(l.hb, "hb")}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="tabular-nums">{l.leukosit ?? "—"}</span>
+                      {labBadge(l.leukosit, "leukosit")}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="tabular-nums">{l.gdp ?? "—"}</span>
+                      {labBadge(l.gdp, "gdp")}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="tabular-nums">{l.gd2pp ?? "—"}</span>
+                      {labBadge(l.gd2pp, "gd2pp")}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="tabular-nums">{l.hba1c ?? "—"}</span>
+                      {labBadge(l.hba1c, "hba1c")}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="tabular-nums">{l.kolesterol ?? "—"}</span>
+                      {labBadge(l.kolesterol, "kolesterol")}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="tabular-nums">{l.ldl ?? "—"}</span>
+                      {labBadge(l.ldl, "ldl")}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="tabular-nums">{l.hdl ?? "—"}</span>
+                      {labBadge(l.hdl, "hdl")}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="tabular-nums">{l.trigliserida ?? "—"}</span>
+                      {labBadge(l.trigliserida, "trigliserida")}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="tabular-nums">{l.sgot ?? "—"}</span>
+                      {labBadge(l.sgot, "sgot")}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="tabular-nums">{l.sgpt ?? "—"}</span>
+                      {labBadge(l.sgpt, "sgpt")}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="tabular-nums">{l.ureum ?? "—"}</span>
+                      {labBadge(l.ureum, "ureum")}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="tabular-nums">{l.kreatinin ?? "—"}</span>
+                      {labBadge(l.kreatinin, "kreatinin")}
+                    </div>
+                  </TableCell>
+                  <TableCell className="max-w-[120px] truncate text-xs text-muted-foreground">
+                    {l.catatan ?? "—"}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      <PascaLabDialog
+        jamaahId={detail.id}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        onSaved={onChanged}
       />
     </div>
+  );
+}
+
+// ===== Pasca Lab Dialog — input form =====
+const FIELD_CLASS =
+  "h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20";
+
+function PascaLabDialog({
+  jamaahId, open, onOpenChange, onSaved,
+}: {
+  jamaahId: string;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onSaved: () => void;
+}) {
+  const [vals, setVals] = React.useState<Record<string, string>>({});
+  const [catatan, setCatatan] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (open) {
+      setVals({});
+      setCatatan("");
+    }
+  }, [open]);
+
+  const set = (k: string, v: string) => setVals((d) => ({ ...d, [k]: v }));
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/jamaah/${jamaahId}/pasca-lab`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...vals, catatan }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error ?? "Gagal menyimpan hasil lab");
+      }
+      toast.success("Hasil lab pasca haji tersimpan");
+      onSaved();
+      onOpenChange(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal menyimpan");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const fields: { key: string; label: string; unit: string }[] = [
+    { key: "hb", label: "Hb", unit: "g/dL" },
+    { key: "leukosit", label: "Leukosit", unit: "ribu/μL" },
+    { key: "gdp", label: "Gula Darah Puasa", unit: "mg/dL" },
+    { key: "gd2pp", label: "Gula Darah 2PP", unit: "mg/dL" },
+    { key: "hba1c", label: "HbA1c", unit: "%" },
+    { key: "kolesterol", label: "Kolesterol Total", unit: "mg/dL" },
+    { key: "ldl", label: "LDL", unit: "mg/dL" },
+    { key: "hdl", label: "HDL", unit: "mg/dL" },
+    { key: "trigliserida", label: "Trigliserida", unit: "mg/dL" },
+    { key: "sgot", label: "SGOT", unit: "U/L" },
+    { key: "sgpt", label: "SGPT", unit: "U/L" },
+    { key: "ureum", label: "Ureum", unit: "mg/dL" },
+    { key: "kreatinin", label: "Kreatinin", unit: "mg/dL" },
+  ];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto scrollbar-thin sm:max-w-2xl">
+        <DialogHeader>
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <TestTube className="h-5 w-5" />
+            </span>
+            <div>
+              <DialogTitle className="text-lg">Input Hasil Lab Pasca Haji</DialogTitle>
+              <DialogDescription>Masukkan hasil pemeriksaan laboratorium</DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {fields.map((f) => (
+            <div key={f.key}>
+              <Label className="mb-1 block text-xs font-medium text-muted-foreground">
+                {f.label} ({f.unit})
+              </Label>
+              <input
+                type="number"
+                step="0.01"
+                value={vals[f.key] ?? ""}
+                onChange={(e) => set(f.key, e.target.value)}
+                placeholder="—"
+                className={FIELD_CLASS}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div>
+          <Label className="mb-1 block text-xs font-medium text-muted-foreground">Catatan</Label>
+          <input
+            value={catatan}
+            onChange={(e) => setCatatan(e.target.value)}
+            placeholder="Catatan klinis…"
+            className={FIELD_CLASS}
+          />
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Batal</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            Simpan Hasil Lab
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

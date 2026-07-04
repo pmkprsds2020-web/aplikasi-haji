@@ -48,8 +48,9 @@ model Jamaah {
   riskSummary String @default("")
 
   // Relasi Pasca Haji
-  screenings  Screening[]
-  vitalSigns  VitalSign[]
+  screenings     Screening[]
+  vitalSigns     VitalSign[]
+  pascaHajjLabs  PascaHajjLab[]
 
   // Relasi Telemedicine
   chatRoom              ChatRoom?
@@ -108,6 +109,30 @@ model VitalSign {
   createdAt  DateTime @default(now())
 
   @@index([jamaahId, hariKe])
+}
+
+// Hasil laboratorium pasca haji
+model PascaHajjLab {
+  id           String   @id @default(cuid())
+  jamaahId     String
+  jamaah       Jamaah   @relation(fields: [jamaahId], references: [id], onDelete: Cascade)
+  hb           Float?
+  leukosit     Float?
+  gdp          Float?
+  gd2pp        Float?
+  hba1c        Float?
+  kolesterol   Float?
+  ldl          Float?
+  hdl          Float?
+  trigliserida Float?
+  sgot         Float?
+  sgpt         Float?
+  ureum        Float?
+  kreatinin    Float?
+  catatan      String?
+  createdAt    DateTime @default(now())
+
+  @@index([jamaahId])
 }
 
 // ===== PRA HAJI =====

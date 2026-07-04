@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { computeRiskForJamaah } from "./risk";
-import type { JamaahDetail, JamaahData, ScreeningData, VitalSignData } from "./types";
+import type { JamaahDetail, JamaahData, ScreeningData, VitalSignData, PascaHajjLabData } from "./types";
 import type {
   PreHajjVitalData,
   PreHajjLabData,
@@ -97,17 +97,38 @@ export function serializeVital(v: {
   };
 }
 
+export function serializePascaHajjLab(l: {
+  id: string; jamaahId: string;
+  hb: number | null; leukosit: number | null;
+  gdp: number | null; gd2pp: number | null; hba1c: number | null;
+  kolesterol: number | null; ldl: number | null; hdl: number | null;
+  trigliserida: number | null; sgot: number | null; sgpt: number | null;
+  ureum: number | null; kreatinin: number | null;
+  catatan: string | null; createdAt: Date;
+}): PascaHajjLabData {
+  return {
+    id: l.id, jamaahId: l.jamaahId,
+    hb: l.hb, leukosit: l.leukosit,
+    gdp: l.gdp, gd2pp: l.gd2pp, hba1c: l.hba1c,
+    kolesterol: l.kolesterol, ldl: l.ldl, hdl: l.hdl,
+    trigliserida: l.trigliserida, sgot: l.sgot, sgpt: l.sgpt,
+    ureum: l.ureum, kreatinin: l.kreatinin,
+    catatan: l.catatan, createdAt: l.createdAt.toISOString(),
+  };
+}
+
 // Hitung ulang & simpan riskLevel + riskSummary jamaah
 export async function recomputeAndSaveRisk(jamaahId: string): Promise<void> {
   const j = await db.jamaah.findUnique({
     where: { id: jamaahId },
-    include: { screenings: true, vitalSigns: true },
+    include: { screenings: true, vitalSigns: true, pascaHajjLabs: true },
   });
   if (!j) return;
   const detail: JamaahDetail = {
     ...serializeJamaah(j),
     screenings: j.screenings.map(serializeScreening),
     vitalSigns: j.vitalSigns.map(serializeVital),
+    pascaHajjLabs: (j.pascaHajjLabs ?? []).map(serializePascaHajjLab),
   };
   const { level, summary } = computeRiskForJamaah(detail);
   await db.jamaah.update({
