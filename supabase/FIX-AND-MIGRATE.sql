@@ -32,11 +32,18 @@ as $$
 $$;
 
 -- Simple profiles policy (NO self-referencing subquery)
+drop policy if exists profiles_sel on public.profiles;
+drop policy if exists profiles_ins on public.profiles;
+drop policy if exists profiles_upd on public.profiles;
 create policy profiles_sel on public.profiles for select using (auth.uid() = id);
 create policy profiles_ins on public.profiles for insert with check (auth.uid() = id);
 create policy profiles_upd on public.profiles for update using (auth.uid() = id);
 
 -- Jamaah policy (uses is_staff() which is SECURITY DEFINER — no recursion)
+drop policy if exists jamaah_sel on public.jamaah;
+drop policy if exists jamaah_ins on public.jamaah;
+drop policy if exists jamaah_upd on public.jamaah;
+drop policy if exists jamaah_del on public.jamaah;
 create policy jamaah_sel on public.jamaah for select using (
   user_id = auth.uid() or doctor_id = auth.uid() or public.is_staff()
 );
