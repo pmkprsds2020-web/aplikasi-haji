@@ -51,7 +51,7 @@ export const useApp = create<AppState>((set) => ({
   selectedJamaahId: null,
   telemedicineJamaahId: null,
   detailTab: "profil",
-  pascaTab: "overview",
+  pascaTab: "ringkasan",
   screeningOpen: null,
   refreshKey: 0,
   // Doctor

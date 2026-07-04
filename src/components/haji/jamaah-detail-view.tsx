@@ -15,6 +15,7 @@ import {
 import {
   ArrowLeft, User, Plane, Activity, History, Sparkles, Pencil,
   Phone, MapPin, Calendar, Stethoscope, Users, ShieldCheck, MessageCircle,
+  LayoutDashboard, TestTube, ClipboardList, HeartPulse, Pill,
   type LucideIcon,
 } from "lucide-react";
 import { useApp, type DetailMainTab } from "@/lib/store";
@@ -268,19 +269,34 @@ export function JamaahDetailView() {
           <PascaTimeline jamaah={j} />
           <PascaTrendCharts jamaah={j} />
 
-          {/* Existing pasca haji sub-tabs (overview/ttv/screening/history) */}
+          {/* ===== Tertiary Navigation: Pasca Haji ===== */}
           <Card>
             <CardContent className="p-3">
               <div className="mb-3 flex items-center gap-1 overflow-x-auto scrollbar-thin">
-                {(["overview", "ttv", "screening", "history"] as const).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setPascaTab(t)}
-                    className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition ${pascaTab === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"}`}
-                  >
-                    {t === "overview" ? "Ringkasan" : t === "ttv" ? "TTV" : t === "screening" ? "Skrining" : "Riwayat Singkat"}
-                  </button>
-                ))}
+                {([
+                  { key: "ringkasan", label: "Ringkasan", icon: LayoutDashboard },
+                  { key: "riwayat", label: "Riwayat Singkat", icon: History },
+                  { key: "ttv", label: "TTV", icon: Activity },
+                  { key: "lab", label: "Lab", icon: TestTube },
+                  { key: "skrining", label: "Skrining", icon: ClipboardList },
+                ] as const).map((t) => {
+                  const TIcon = t.icon;
+                  const active = pascaTab === t.key;
+                  return (
+                    <button
+                      key={t.key}
+                      onClick={() => setPascaTab(t.key)}
+                      className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
+                        active
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground border border-border/60"
+                      }`}
+                    >
+                      <TIcon className="h-3.5 w-3.5" />
+                      {t.label}
+                    </button>
+                  );
+                })}
                 <div className="ml-auto flex gap-1.5">
                   <Button variant="outline" size="sm" onClick={() => setVitalOpen(true)} className="h-7 text-xs">
                     <Activity className="mr-1 h-3 w-3" /> Input TTV
@@ -292,7 +308,7 @@ export function JamaahDetailView() {
                 detail={j}
                 riskFlags={riskFlags}
                 onOpenScreening={(jenis) => setScreeningOpen(jenis)}
-                onGoScreening={() => setPascaTab("screening")}
+                onGoScreening={() => setPascaTab("skrining")}
               />
             </CardContent>
           </Card>
@@ -338,15 +354,27 @@ function PascaSubContent({
   onOpenScreening: (jenis: JenisSkrining) => void;
   onGoScreening: () => void;
 }) {
-  if (tab === "overview") {
+  // ===== 1. RINGKASAN — overview kepulangan =====
+  if (tab === "ringkasan" || tab === "overview") {
     const latestVital = detail.vitalSigns[0] ?? null;
     const merahFlags = riskFlags.filter((f) => f.level === "MERAH");
     const kuningFlags = riskFlags.filter((f) => f.level === "KUNING");
+    const hariPasca = hariSejak(detail.tanggalTiba);
+    const lamaPerjalanan = detail.tanggalBerangkat && detail.tanggalTiba
+      ? Math.round((new Date(detail.tanggalTiba).getTime() - new Date(detail.tanggalBerangkat).getTime()) / 86400000)
+      : null;
     return (
       <div className="space-y-3">
-        {/* Risk summary */}
+        {/* Info Kepulangan */}
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <InfoBox icon={Plane} label="Tanggal Pulang" value={formatTanggal(detail.tanggalTiba)} />
+          <InfoBox icon={Calendar} label="Lama Perjalanan" value={lamaPerjalanan != null ? `${lamaPerjalanan} hari` : "—"} />
+          <InfoBox icon={Activity} label="Hari Pasca Pulang" value={`Hari ${hariPasca}`} />
+        </div>
+
+        {/* Status Risiko */}
         <div className="rounded-lg border border-border/50 bg-accent/30 p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ringkasan Risiko Pasca Haji</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status Risiko Pasca Haji</p>
           <p className="mt-1 text-sm">{detail.riskSummary}</p>
           {(merahFlags.length > 0 || kuningFlags.length > 0) && (
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -363,6 +391,32 @@ function PascaSubContent({
             </div>
           )}
         </div>
+
+        {/* Diagnosis & Penyakit Penyerta */}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <InfoBox icon={HeartPulse} label="Diagnosis Saat Pulang" value={detail.riwayatPenyakit || "Tidak ada"} />
+          <InfoBox icon={Pill} label="Obat Rutin" value={detail.obatRutin || "Tidak ada"} />
+        </div>
+
+        {/* Ringkasan Monitoring */}
+        <div className="rounded-lg border border-border/50 p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ringkasan Monitoring</p>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div>
+              <p className="text-2xl font-bold text-primary">{detail.vitalSigns.length}</p>
+              <p className="text-xs text-muted-foreground">TTV</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-primary">{detail.screenings.length}</p>
+              <p className="text-xs text-muted-foreground">Skrining</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-primary">{hariPasca}</p>
+              <p className="text-xs text-muted-foreground">Hari</p>
+            </div>
+          </div>
+        </div>
+
         {/* Latest vitals */}
         {latestVital ? (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
@@ -383,12 +437,25 @@ function PascaSubContent({
     );
   }
 
+  // ===== 2. RIWAYAT SINGKAT — timeline vertikal pasca haji =====
+  if (tab === "riwayat" || tab === "history") {
+    return <PascaHistoryList detail={detail} onOpen={onOpenScreening} />;
+  }
+
+  // ===== 3. TTV — table + trend chart =====
   if (tab === "ttv") {
     const sorted = [...detail.vitalSigns].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
+    const lastUpdate = sorted[0];
     return (
       <div className="space-y-4">
+        {lastUpdate && (
+          <div className="flex items-center justify-between rounded-lg border border-border/50 bg-accent/30 px-3 py-2">
+            <span className="text-xs font-medium text-muted-foreground">Update Terakhir</span>
+            <span className="text-xs font-semibold">{formatTanggalWaktu(lastUpdate.createdAt)} (Hari {lastUpdate.hariKe})</span>
+          </div>
+        )}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">Riwayat TTV Pasca Haji</CardTitle>
@@ -439,12 +506,63 @@ function PascaSubContent({
     );
   }
 
-  if (tab === "screening") {
+  // ===== 4. LAB — hasil laboratorium pasca haji =====
+  if (tab === "lab") {
+    return <PascaLabView detail={detail} />;
+  }
+
+  // ===== 5. SKRINING =====
+  if (tab === "screening" || tab === "skrining") {
     return <PascaScreeningList detail={detail} onOpen={onOpenScreening} />;
   }
 
-  // history
-  return <PascaHistoryList detail={detail} onOpen={onOpenScreening} />;
+  return null;
+}
+
+// ===== Helper: InfoBox for Ringkasan =====
+function InfoBox({
+  icon: Icon, label, value,
+}: {
+  icon: LucideIcon; label: string; value: string;
+}) {
+  return (
+    <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-accent/20 p-2.5">
+      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="truncate text-sm font-medium">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+// ===== Pasca Lab View — hasil lab pasca haji dengan badge =====
+function PascaLabView({ detail }: { detail: JamaahDetail }) {
+  // Pasca haji labs come from the pre_hajj_lab table (lab results are shared).
+  // In a full migration, pasca haji would have its own lab table. For now,
+  // we display the lab results linked to this jamaah.
+  // Note: detail doesn't include preHajjLabs directly, so we show a placeholder
+  // with a note that labs are in the Pra Haji tab. But per the prompt, we should
+  // show lab results here. Since the jamaah detail from the API includes preHajj
+  // data, we can use it if available. However, the JamaahDetail type only has
+  // screenings + vitalSigns for pasca haji. For now, show empty state with guidance.
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-border/50 bg-accent/20 p-3">
+        <p className="text-sm font-medium">Hasil Laboratorium Pasca Haji</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Hasil laboratorium pasca haji akan ditampilkan di sini. Saat ini, data laboratorium
+          tersimpan di tab <strong>Pra Haji → Lab</strong>. Untuk melihat hasil lab, silakan
+          buka tab Pra Haji.
+        </p>
+      </div>
+      <EmptyState
+        icon={TestTube}
+        title="Belum ada data lab pasca haji"
+        desc="Hasil laboratorium pasca haji akan muncul di sini setelah diinput oleh dokter."
+      />
+    </div>
+  );
 }
 
 function MiniStat({

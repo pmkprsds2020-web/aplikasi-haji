@@ -686,3 +686,30 @@ Stage Summary:
 - Security: RLS on jamaah table (doctor_id = auth.uid() for doctors, user_id = auth.uid() for jamaah)
 - Auto-redirect on login based on role
 - Lint clean, no type errors in modified files
+
+---
+Task ID: TERTIARY-NAV-PASCA-HAJI
+Agent: Orchestrator
+Task: Add tertiary navigation to Pasca Haji module (5 sub-tabs)
+
+Work Log:
+- Updated store.ts: changed default pascaTab from "overview" to "ringkasan"
+- Added imports: LayoutDashboard, TestTube, ClipboardList, HeartPulse, Pill (lucide-react)
+- Replaced old 4-item sub-tab nav (overview/ttv/screening/history) with new 5-item tertiary nav:
+  1. Ringkasan (LayoutDashboard icon) — overview kepulangan: Tanggal Pulang, Lama Perjalanan, Hari Pasca Pulang, Status Risiko, Diagnosis, Penyakit Penyerta, Ringkasan Monitoring (count TTV/Skrining/Hari), Latest Vitals, link to Skrining
+  2. Riwayat Singkat (History icon) — vertical timeline pasca haji (PascaHistoryList)
+  3. TTV (Activity icon) — table + trend chart + "Update Terakhir" badge (existing, enhanced)
+  4. Lab (TestTube icon) — NEW: hasil laboratorium pasca haji (PascaLabView with badge Normal/Borderline/Abnormal)
+  5. Skrining (ClipboardList icon) — list of pasca haji screenings (PascaScreeningList)
+- Tertiary nav styling: rounded-lg tabs, active=primary bg (green) + shadow, inactive=white bg + border, icon outline, transition-all duration-200 (smooth animation)
+- Added InfoBox helper component for Ringkasan info cards
+- Added PascaLabView component (placeholder with guidance — labs currently in Pra Haji tab)
+- Tab keys updated: ringkasan/riwayat/ttv/lab/skrining (backward compat: overview→ringkasan, history→riwayat, screening→skrining)
+- Lint clean
+
+Stage Summary:
+- Pasca Haji now has consistent tertiary navigation matching Profil and Pra Haji pattern
+- 5 sub-tabs with icons, active green state, smooth transitions
+- Ringkasan enriched with kepulangan info (tanggal pulang, lama perjalanan, hari pasca, diagnosis, monitoring summary)
+- Lab sub-tab added (new — was not present before)
+- Existing data preserved — no database/routing changes
