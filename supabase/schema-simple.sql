@@ -235,33 +235,30 @@ create table if not exists public.telemedicine_ai_summary (
 -- Jamaah sees: only their own data where user_id = auth.uid()
 -- Chat: any authenticated user can read/write their rooms
 
--- PROFILES
+-- PROFILES — user sees own profile only (no self-referencing subquery)
 alter table public.profiles enable row level security;
 drop policy if exists profiles_sel on public.profiles;
-create policy profiles_sel on public.profiles for select using (auth.uid() = id or exists(select 1 from public.profiles p where p.id = auth.uid() and p.role in ('super_admin','admin','kepala_klinik','pj_mutu','petugas')));
+create policy profiles_sel on public.profiles for select using (auth.uid() = id);
 drop policy if exists profiles_ins on public.profiles;
 create policy profiles_ins on public.profiles for insert with check (auth.uid() = id);
 drop policy if exists profiles_upd on public.profiles;
 create policy profiles_upd on public.profiles for update using (auth.uid() = id);
 
 -- JAMAAH — doctor sees assigned patients, jamaah sees own record
+-- Uses is_staff() (SECURITY DEFINER) to avoid infinite recursion
 alter table public.jamaah enable row level security;
 drop policy if exists jamaah_sel on public.jamaah;
 create policy jamaah_sel on public.jamaah for select using (
-  user_id = auth.uid() or doctor_id = auth.uid() or
-  exists(select 1 from public.profiles p where p.id = auth.uid() and p.role in ('super_admin','admin','kepala_klinik','pj_mutu','petugas'))
+  user_id = auth.uid() or doctor_id = auth.uid() or public.is_staff()
 );
 drop policy if exists jamaah_ins on public.jamaah;
 create policy jamaah_ins on public.jamaah for insert with check (auth.uid() is not null);
 drop policy if exists jamaah_upd on public.jamaah;
 create policy jamaah_upd on public.jamaah for update using (
-  user_id = auth.uid() or doctor_id = auth.uid() or
-  exists(select 1 from public.profiles p where p.id = auth.uid() and p.role in ('super_admin','admin','kepala_klinik','pj_mutu','petugas'))
+  user_id = auth.uid() or doctor_id = auth.uid() or public.is_staff()
 );
 drop policy if exists jamaah_del on public.jamaah;
-create policy jamaah_del on public.jamaah for delete using (
-  exists(select 1 from public.profiles p where p.id = auth.uid() and p.role in ('super_admin','admin'))
-);
+create policy jamaah_del on public.jamaah for delete using (public.is_staff());
 
 -- CHILD TABLES (screening, vital_sign, pasca_hajj_lab, pre_hajj_*) — same pattern
 -- Staff can read all; jamaah can read own (via jamaah_id linked to jamaah.user_id = auth.uid())
