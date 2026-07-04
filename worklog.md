@@ -575,3 +575,114 @@ User Action Required:
 3. Check browser console — should now see step 1 through step 12 logging
 4. If INSERT fails, the alert will show the exact PostgreSQL error code + message
 5. If INSERT succeeds, check Supabase Dashboard → Table Editor → chat_message for the row
+
+---
+Task ID: RBAC-B
+Agent: Frontend Developer (Jamaah Telemedicine)
+Task: Build Jamaah telemedicine chat with assigned doctor
+
+Work Log:
+- Read worklog.md for context (CHAT-SUPABASE-DIRECT, CHAT-FK-FIX, CHAT-SENDMESSAGE-AUDIT) — understood chat_room/chat_message schema, RLS (any authenticated user can INSERT), and existing useSupabaseChat hook.
+- Read existing assets: src/lib/store.ts (has goJamaahChat/goJamaahDashboard + ViewName 'jamaah-chat'), src/contexts/supabase-auth-context.tsx (useSupabaseAuth → user, role), src/hooks/use-supabase-chat.ts (REJECTED — sets doctor_id = user.id, wrong for jamaah), src/components/haji/telemedicine/conversation-panel.tsx (reference for bubble layout).
+- Verified schema: supabase jamaah table has id (uuid), user_id, doctor_id, nama. chat_room has jamaah_id (text), doctor_id (uuid), unique(jamaah_id). chat_message has room_id (uuid), sender_type, sender_name, type, content, attachment_*, read_by_doctor, read_by_jamaah, created_at. profiles has full_name, email, phone.
+- Created directory: src/components/haji/jamaah-views/
+- Built src/components/haji/jamaah-views/jamaah-chat.tsx as a SELF-CONTAINED component (no useSupabaseChat hook — that hook would set doctor_id = user.id which is wrong for a jamaah).
+- Data flow on mount:
+  1. Fetch jamaah by user_id → get id (jamaahId), nama, doctor_id
+  2. If doctor_id null → show NoDoctorState ("Belum ada dokter pendamping. Hubungi Puskesmas untuk penugasan dokter.")
+  3. Else fetch doctor profile (full_name, email, phone)
+  4. Ensure chat_room: SELECT by jamaah_id (= jamaah.id) → INSERT if missing with correct doctor_id (= assigned doctor) → UPDATE doctor_id if mismatched
+  5. Fetch chat_message WHERE room_id ORDER BY created_at ASC LIMIT 200
+  6. Mark inbound DOCTOR/SYSTEM/AI messages as read_by_jamaah = true + reset unread_by_jamaah counter
+  7. Subscribe to Supabase Realtime INSERT events on chat_message filtered by room_id
+- Send flow: INSERT chat_message with sender_type='JAMAAH', sender_name=jamaah.nama, type='TEXT' → update chat_room.last_message_at → refresh messages
+- Attachment send: INSERT with type='IMAGE'|'PDF'|'FILE' (placeholder content)
+- UI: single-column max-w-2xl, header (back button + doctor avatar + name + "Dokter Pendamping" + online dot), messages area (DOCTOR left/card bg, JAMAAH right/primary bg, SYSTEM/AI centered muted), composer (emoji popover, attach popover, textarea, h-12 send button).
+- Elderly-friendly: text-base minimum, h-12 buttons, comfortable spacing, rounded-2xl bubbles.
+- Read receipts: JAMAAH messages show ✓ or ✓✓ based on read_by_doctor; DOCTOR messages show ✓✓ when read_by_jamaah (jamaah viewing them).
+- Empty state: "Belum ada pesan. Mulai percakapan dengan dokter Anda."
+- Loading state: Loader2 spinner.
+- Error handling: console.log + console.error for every Supabase call; real PostgreSQL errors (code + message + details + hint) surfaced via toast.error.
+- Back button → goJamaahDashboard().
+- All text in Indonesian.
+
+Stage Summary:
+- New file: src/components/haji/jamaah-views/jamaah-chat.tsx (1 file, ~570 lines)
+- Exports: JamaahChat (default-named export) — ready to be rendered when view === 'jamaah-chat'.
+- Lint: `bun run lint` passes with 0 errors / 0 warnings.
+- TypeScript: new file has 0 type errors (pre-existing TS errors in app-shell.tsx, prisma/seed.ts, examples/, mini-services/ are unrelated and out of scope for this task).
+- Note for orchestrator: app-shell.tsx `goFns` Record<ViewName, () => void> in SidebarContent needs the 4 jamaah view actions added (goJamaahDashboard, goJamaahRiwayat, goJamaahChat, goJamaahProfil) — this is wiring work for a future task, not part of RBAC-B scope. The JamaahChat component itself is complete and self-contained.
+- Note: This component does NOT depend on useSupabaseChat hook because that hook incorrectly assigns doctor_id = user.id (jamaah's user id) rather than the jamaah's assigned doctor_id. Building self-contained logic in the component was the recommended approach per the task brief.
+
+---
+Task ID: RBAC-A
+Agent: Frontend Developer (Jamaah UI)
+Task: Build Jamaah dashboard, riwayat kesehatan, profil saya views
+
+Work Log:
+- Read worklog.md, src/lib/store.ts (Zustand nav with goJamaah* actions + ViewName includes jamaah-*), src/contexts/supabase-auth-context.tsx (useSupabaseAuth → user/role), src/components/haji/shared.tsx (RiskBadge, EmptyState), src/lib/format.ts (formatTanggal, RISK_STYLE, initials, kelaminLabel, hariSejak), src/lib/supabase/types.ts (table row shapes), app-shell.tsx (existing doctor-side nav layout), riwayat-tab.tsx + profil-tab.tsx (doctor-side reference patterns), dashboard-view.tsx + vital-signs-chart.tsx + pre-hajj-vitals-chart.tsx (recharts patterns with var(--border)/var(--muted-foreground)).
+- Created `src/components/haji/jamaah-views/` directory.
+- Built `jamaah-dashboard.tsx` — elderly-friendly simplified dashboard:
+  * Fetches jamaah row by `user_id` via Supabase browser client (`createClient()`).
+  * Parallel fetches: doctor profile (profiles.full_name + email), latest vital_sign, latest 3 screenings, latest 5 chat_message (RLS ensures only own room visible).
+  * Warm welcome banner: "Assalamu'alaikum, [Nama]" with 80px avatar (initials), kloter, hari pasca pulang.
+  * 4-up grid: Status Risiko (colored RiskBadge with HIJAU/KUNING/MERAH + risk_summary), Dokter Pendamping (name + puskesmas + Chat button → goJamaahChat), Kloter & Porsi, Jadwal Kontrol (Hari 1/7/14/30 next schedule based on hariSejak(tanggal_tiba)).
+  * Ringkasan Kesehatan card with 4 vital stats (TD, SpO₂, Suhu, GD) + latest 3 screenings.
+  * Notifikasi card merging chat + vital + screening events (deduped, sorted newest first, cap 5).
+  * Two big navigation buttons (Riwayat Kesehatan → goJamaahRiwayat, Chat Dokter → goJamaahChat) sized h-16 text-lg.
+  * max-w-4xl mx-auto layout, all fonts text-base or larger, buttons h-12+.
+- Built `jamaah-riwayat.tsx` — read-only health history with 4 sub-tabs:
+  * Tabs (TabsList with h-12 triggers, text-base): Ringkasan | TTV | Laboratorium | Skrining. Uses Zustand `pascaTab` (set via `goJamaahRiwayat(tab)`) for active tab so deep-link navigation from dashboard works.
+  * Ringkasan: diagnosis (riwayat_penyakit, operasi, alergi, obat_rutin), kronis chips (pre_hajj_chronic: hipertensi/diabetes/ppok/ckd/jantung/stroke/kanker), risk status (HIJAU/KUNING/MERAH with risk_summary), doctor + pemeriksaan terakhir + hari pasca pulang + Hubungi Dokter button.
+  * TTV: trend chart (recharts LineChart with TD, Suhu, SpO₂, Gula Darah; uses var(--border)/var(--muted-foreground) for colors) + table (Tanggal, TD, Nadi, RR, Suhu, SpO₂, BB, GD).
+  * Laboratorium: table of pre_hajj_lab (Tanggal, Hb, GDP, HbA1c, Kolesterol, HDL, LDL, Trigliserida, Asam Urat, SGOT, SGPT, Kreatinin, eGFR).
+  * Skrining: two tables — pasca haji (screening: Tanggal, Instrumen, Hari, Skor, Catatan) + pra haji (pre_hajj_screening: Tanggal, Instrumen, Skor, Catatan).
+  * Kembali button (h-12 text-base) → goJamaahDashboard. All read-only (no edit/delete/add buttons).
+- Built `jamaah-profil.tsx` — read-only profile page:
+  * Fetches jamaah row by user_id + linked profiles row (full_name, email, phone) by user.id.
+  * Header card: avatar (80px), nama, usia/kelamin/gol darah, istithaah badge, kloter/porsi badge.
+  * 4 section cards: Identitas (NIK, Porsi, Paspor, Embarkasi, Gol Darah, Kelamin, Usia, Kabupaten), Kontak (HP, Kontak Keluarga, Email, Telepon Akun, Alamat), Medis (Riwayat Penyakit, Operasi, Alergi highlighted rose, Obat Rutin, Istithaah, Dokter Keluarga, Puskesmas), Perjalanan Haji (Tanggal Berangkat, Tanggal Pulang/Tiba with hari pasca, Bandara, Kloter/Porsi).
+  * Footer note: "Data profil hanya dapat diubah oleh dokter atau petugas klinik."
+  * Kembali button → goJamaahDashboard. All read-only.
+- All 3 views use consistent elderly-friendly UX: text-base+ body fonts, h-12+ touch targets, high contrast, Skeleton loaders while fetching, EmptyState when no data, sonner toasts on errors (console.error + toast.error pattern), Indonesian language, RLS-dependent data fetches (no manual filtering needed — Supabase RLS handles scoping).
+- Fixed TS2345 errors: changed `tasks: Promise<void>[]` → `tasks: PromiseLike<void>[]` in both dashboard and riwayat (supabase `.then()` returns PromiseLike, not Promise).
+- Ran `bun run lint` — passes clean (`$ eslint .` with no errors).
+- Ran `bunx tsc --noEmit` — verified no TypeScript errors in any jamaah-views/* file (other pre-existing tsc errors in app-shell.tsx, jamaah-detail-view.tsx, screening-dialog.tsx are out of scope for this task).
+
+Stage Summary:
+- Files created (3):
+  * src/components/haji/jamaah-views/jamaah-dashboard.tsx — simplified elderly-friendly dashboard with risk/doctor/kloter/kontrol/vitals/notifications + big nav buttons
+  * src/components/haji/jamaah-views/jamaah-riwayat.tsx — read-only 4-tab history (Ringkasan/TTV/Lab/Skrining) with recharts trend chart and tables
+  * src/components/haji/jamaah-views/jamaah-profil.tsx — read-only profile with 4 section cards (Identitas/Kontak/Medis/Perjalanan Haji)
+- Lint (`bun run lint`): PASS (no errors).
+- TypeScript (`bunx tsc --noEmit`): PASS for all jamaah-views/* files (pre-existing errors elsewhere ignored).
+- Data fetching: direct Supabase browser client (`createClient()`), RLS-enforced, parallel Promise.all for performance, error handling with console.error + sonner toast.
+- Navigation: all goJamaah* Zustand actions wired (goJamaahDashboard / goJamaahRiwayat / goJamaahChat / goJamaahProfil), sub-tab state persisted in `pascaTab` so dashboard deep-links like `goJamaahRiwayat("ttv")` work.
+- Next steps (out of scope, for orchestrator): wire these views into `app-shell.tsx` for `role === "jamaah"` (render JamaahDashboard/JamaahRiwayat/JamaahProfil when `view` starts with `jamaah-`), add a jamaah-specific bottom nav, and build the `jamaah-chat` view (separate task).
+
+---
+Task ID: RBAC-ORCHESTRATOR
+Agent: Enterprise Software Architect
+Task: Wire role-based access control (RBAC) into app shell
+
+Work Log:
+- Updated store.ts: added 4 jamaah views (jamaah-dashboard, jamaah-riwayat, jamaah-chat, jamaah-profil) + navigation actions (goJamaahDashboard, goJamaahRiwayat, goJamaahChat, goJamaahProfil)
+- Updated schema.sql: added doctor_id column to jamaah table (FK to auth.users), added index, updated jamaah RLS policies (doctor sees jamaah where doctor_id = auth.uid(); jamaah sees own record where user_id = auth.uid())
+- Rewrote app-shell.tsx with full RBAC:
+  - Two nav arrays: DOCTOR_NAV (5 items) and JAMAAH_NAV (4 items: Dashboard, Riwayat Kesehatan, Telemedicine, Profil Saya)
+  - Auto-redirect: when role === 'jamaah' logs in, auto-navigates to jamaah-dashboard (not doctor dashboard)
+  - Role-based view rendering: jamaah sees JamaahDashboard/JamaahRiwayat/JamaahChat/JamaahProfil; doctor sees existing DashboardView/JamaahListView/etc.
+  - Role-based sidebar: shows "Portal Jamaah" + "Menu Saya" for jamaah; "EHHR" + "Menu Utama" for doctor
+  - Role-based mobile nav: 4 items for jamaah, 5 items for doctor
+  - Role-based header label lookup
+  - max-w-4xl for jamaah views (comfortable, centered); max-w-6xl/7xl for doctor
+- Subagent RBAC-A built: JamaahDashboard, JamaahRiwayat (4 sub-tabs: Ringkasan/TTV/Lab/Skrining), JamaahProfil — all read-only, elderly-friendly (large fonts, high contrast), Supabase-direct data fetching with RLS
+- Subagent RBAC-B built: JamaahChat — self-contained chat that fetches jamaah's doctor_id, ensures chat_room with correct assigned doctor (not user.id), Realtime subscription, sender_type='JAMAAH'
+
+Stage Summary:
+- Full RBAC implemented: 2 roles (doctor/jamaah) with completely different dashboards, sidebars, and access levels
+- Jamaah: simplified dashboard (large cards, elderly-friendly), read-only health history (TTV/Lab/Skrining with charts), chat with assigned doctor only, read-only profile
+- Doctor: existing full-access dashboard (unchanged)
+- Security: RLS on jamaah table (doctor_id = auth.uid() for doctors, user_id = auth.uid() for jamaah)
+- Auto-redirect on login based on role
+- Lint clean, no type errors in modified files

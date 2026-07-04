@@ -218,6 +218,7 @@ $$;
 create table if not exists public.jamaah (
   id                uuid primary key default gen_random_uuid(),
   user_id           uuid references auth.users(id) on delete set null,
+  doctor_id         uuid references auth.users(id) on delete set null,
   nama              text not null,
   nik               text not null,
   kloter            text not null,
@@ -255,6 +256,7 @@ create table if not exists public.jamaah (
   unique (nik)
 );
 create index if not exists idx_jamaah_user_id     on public.jamaah(user_id);
+create index if not exists idx_jamaah_doctor_id   on public.jamaah(doctor_id);
 create index if not exists idx_jamaah_risk_level  on public.jamaah(risk_level desc);
 create index if not exists idx_jamaah_kloter      on public.jamaah(kloter);
 create index if not exists idx_jamaah_puskesmas   on public.jamaah(puskesmas);
@@ -694,13 +696,23 @@ drop policy if exists audit_log_delete on public.audit_log;
 create policy audit_log_delete on public.audit_log for delete using (public.is_super_admin());
 
 -- ---------- JAMAAH ----------
+-- Doctor sees jamaah where doctor_id = auth.uid() OR is_staff (admin etc.)
+-- Jamaah sees only their own record where user_id = auth.uid()
 alter table public.jamaah enable row level security;
 drop policy if exists jamaah_select on public.jamaah;
-create policy jamaah_select on public.jamaah for select using (public.is_staff() or user_id = auth.uid());
+create policy jamaah_select on public.jamaah for select using (
+  public.is_staff()
+  or user_id = auth.uid()
+  or doctor_id = auth.uid()
+);
 drop policy if exists jamaah_insert on public.jamaah;
-create policy jamaah_insert on public.jamaah for insert with check (public.is_staff() or user_id = auth.uid());
+create policy jamaah_insert on public.jamaah for insert with check (
+  public.is_staff() or user_id = auth.uid()
+);
 drop policy if exists jamaah_update on public.jamaah;
-create policy jamaah_update on public.jamaah for update using (public.is_staff() or user_id = auth.uid());
+create policy jamaah_update on public.jamaah for update using (
+  public.is_staff() or user_id = auth.uid() or doctor_id = auth.uid()
+);
 drop policy if exists jamaah_delete on public.jamaah;
 create policy jamaah_delete on public.jamaah for delete using (public.is_staff());
 

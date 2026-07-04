@@ -3,24 +3,33 @@
 import * as React from "react";
 import {
   LayoutDashboard, Users, CalendarClock, Sparkles, Moon, Sun,
-  HeartPulse, Stethoscope, Loader2, LogOut, type LucideIcon,
+  HeartPulse, Stethoscope, Loader2, LogOut, UserCircle, ClipboardList,
+  type LucideIcon,
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { useApp, type ViewName } from "@/lib/store";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+// Doctor views
 import { DashboardView } from "./dashboard-view";
 import { JamaahListView } from "./jamaah-list-view";
 import { JamaahDetailView } from "./jamaah-detail-view";
 import { MonitoringView } from "./monitoring-view";
 import { AiView } from "./ai-view";
 import { TelemedicineView } from "./telemedicine/telemedicine-view";
+// Jamaah views
+import { JamaahDashboard } from "./jamaah-views/jamaah-dashboard";
+import { JamaahRiwayat } from "./jamaah-views/jamaah-riwayat";
+import { JamaahChat } from "./jamaah-views/jamaah-chat";
+import { JamaahProfil } from "./jamaah-views/jamaah-profil";
+// Auth
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
 import { LoginScreen } from "./login-screen";
 import { SupabaseStatusBadge } from "./supabase-status-badge";
 
-const NAV: { view: ViewName; label: string; icon: LucideIcon; desc: string }[] = [
+// ===== Doctor nav =====
+const DOCTOR_NAV: { view: ViewName; label: string; icon: LucideIcon; desc: string }[] = [
   { view: "dashboard", label: "Dashboard", icon: LayoutDashboard, desc: "Ringkasan & risiko" },
   { view: "jamaah", label: "Data Jamaah", icon: Users, desc: "Kelola jamaah" },
   { view: "telemedicine", label: "Telemedicine", icon: Stethoscope, desc: "Chat & monitoring" },
@@ -28,11 +37,30 @@ const NAV: { view: ViewName; label: string; icon: LucideIcon; desc: string }[] =
   { view: "ai", label: "Analisis AI", icon: Sparkles, desc: "Rekomendasi AI" },
 ];
 
+// ===== Jamaah nav (simplified) =====
+const JAMAAH_NAV: { view: ViewName; label: string; icon: LucideIcon; desc: string }[] = [
+  { view: "jamaah-dashboard", label: "Dashboard", icon: LayoutDashboard, desc: "Beranda" },
+  { view: "jamaah-riwayat", label: "Riwayat Kesehatan", icon: ClipboardList, desc: "TTV, Lab, Skrining" },
+  { view: "jamaah-chat", label: "Telemedicine", icon: Stethoscope, desc: "Chat dokter" },
+  { view: "jamaah-profil", label: "Profil Saya", icon: UserCircle, desc: "Data diri" },
+];
+
 export function AppShell() {
-  const { view, telemedicineJamaahId } = useApp();
+  const {
+    view, telemedicineJamaahId, goDashboard, goJamaahDashboard,
+  } = useApp();
   const { user, loading, signOut, role } = useSupabaseAuth();
 
-  // Auth gate: show login screen if not authenticated
+  // ===== Auto-redirect to correct dashboard on login based on role =====
+  React.useEffect(() => {
+    if (!user || !role) return;
+    // Only redirect on initial load (when view is the default "dashboard")
+    if (view === "dashboard" && role === "jamaah") {
+      goJamaahDashboard();
+    }
+  }, [user, role, view, goJamaahDashboard]);
+
+  // ===== Auth gate =====
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -48,12 +76,15 @@ export function AppShell() {
     return <LoginScreen />;
   }
 
+  const isJamaah = role === "jamaah";
+  const nav = isJamaah ? JAMAAH_NAV : DOCTOR_NAV;
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <div className="flex flex-1">
         {/* Sidebar desktop */}
         <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex">
-          <SidebarContent />
+          <SidebarContent nav={nav} isJamaah={isJamaah} />
         </aside>
 
         {/* Main */}
@@ -77,7 +108,7 @@ export function AppShell() {
           <header className="sticky top-0 z-20 hidden items-center justify-between border-b border-border bg-card/80 px-6 py-3 backdrop-blur lg:flex">
             <div>
               <h2 className="text-sm font-semibold text-muted-foreground">
-                {NAV.find((n) => n.view === (view === "detail" ? "jamaah" : view))?.label ?? "Dashboard"}
+                {nav.find((n) => n.view === view)?.label ?? "Dashboard"}
               </h2>
             </div>
             <div className="flex items-center gap-2">
@@ -88,18 +119,31 @@ export function AppShell() {
           </header>
 
           <main className="flex-1 p-4 sm:p-6">
-            {view === "telemedicine" ? (
-              <div className="mx-auto max-w-7xl">
-                <TelemedicineView initialJamaahId={telemedicineJamaahId ?? undefined} />
+            {isJamaah ? (
+              // ===== Jamaah views =====
+              <div className="mx-auto max-w-4xl">
+                {view === "jamaah-dashboard" && <JamaahDashboard />}
+                {view === "jamaah-riwayat" && <JamaahRiwayat />}
+                {view === "jamaah-chat" && <JamaahChat />}
+                {view === "jamaah-profil" && <JamaahProfil />}
               </div>
             ) : (
-              <div className="mx-auto max-w-6xl">
-                {view === "dashboard" && <DashboardView />}
-                {view === "jamaah" && <JamaahListView />}
-                {view === "detail" && <JamaahDetailView />}
-                {view === "monitoring" && <MonitoringView />}
-                {view === "ai" && <AiView />}
-              </div>
+              // ===== Doctor views =====
+              <>
+                {view === "telemedicine" ? (
+                  <div className="mx-auto max-w-7xl">
+                    <TelemedicineView initialJamaahId={telemedicineJamaahId ?? undefined} />
+                  </div>
+                ) : (
+                  <div className="mx-auto max-w-6xl">
+                    {view === "dashboard" && <DashboardView />}
+                    {view === "jamaah" && <JamaahListView />}
+                    {view === "detail" && <JamaahDetailView />}
+                    {view === "monitoring" && <MonitoringView />}
+                    {view === "ai" && <AiView />}
+                  </div>
+                )}
+              </>
             )}
           </main>
         </div>
@@ -109,29 +153,51 @@ export function AppShell() {
       <footer className="mt-auto border-t border-border bg-card px-4 py-3 text-center text-xs text-muted-foreground">
         <p>
           <span className="font-semibold text-foreground">SiHaji Care</span> — Electronic Hajj Health Record ·
-          Pendekatan Biopsikososial Spiritual Kedokteran Keluarga ·
-          <span className="ml-1">Panduan Kemenkes RI</span>
+          Pendekatan Biopsikososial Spiritual Kedokteran Keluarga
         </p>
       </footer>
 
-      {/* Mobile bottom nav */}
-      <nav className="sticky bottom-0 z-30 grid grid-cols-5 border-t border-border bg-card/95 backdrop-blur lg:hidden">
-        <MobileNavBtn view="dashboard" />
-        <MobileNavBtn view="jamaah" />
-        <MobileNavBtn view="telemedicine" />
-        <MobileNavBtn view="monitoring" />
-        <MobileNavBtn view="ai" />
+      {/* Mobile bottom nav — role-based */}
+      <nav
+        className="sticky bottom-0 z-30 grid border-t border-border bg-card/95 backdrop-blur lg:hidden"
+        style={{ gridTemplateColumns: `repeat(${nav.length}, minmax(0, 1fr))` }}
+      >
+        {nav.map((n) => (
+          <MobileNavBtn key={n.view} target={n.view} nav={nav} />
+        ))}
       </nav>
     </div>
   );
 }
 
-function MobileNavBtn({ view: target }: { view: ViewName }) {
-  const { view, goDashboard, goJamaahList, goMonitoring, goAI, goTelemedicine } = useApp();
-  const active = view === target || (target === "jamaah" && view === "detail");
-  const meta = NAV.find((n) => n.view === target)!;
+function MobileNavBtn({
+  target, nav,
+}: {
+  target: ViewName;
+  nav: { view: ViewName; label: string; icon: LucideIcon; desc: string }[];
+}) {
+  const {
+    view, goDashboard, goJamaahList, goMonitoring, goAI, goTelemedicine,
+    goJamaahDashboard, goJamaahRiwayat, goJamaahChat, goJamaahProfil,
+  } = useApp();
+  const meta = nav.find((n) => n.view === target)!;
+  const active = view === target;
+
+  const goMap: Partial<Record<ViewName, () => void>> = {
+    dashboard: goDashboard,
+    jamaah: goJamaahList,
+    monitoring: goMonitoring,
+    ai: goAI,
+    telemedicine: () => goTelemedicine(),
+    "jamaah-dashboard": goJamaahDashboard,
+    "jamaah-riwayat": () => goJamaahRiwayat(),
+    "jamaah-chat": goJamaahChat,
+    "jamaah-profil": goJamaahProfil,
+  };
+
+  const go = goMap[target];
   const Icon = meta.icon;
-  const go = target === "dashboard" ? goDashboard : target === "jamaah" ? goJamaahList : target === "monitoring" ? goMonitoring : target === "ai" ? goAI : goTelemedicine;
+
   return (
     <button
       onClick={go}
@@ -146,11 +212,29 @@ function MobileNavBtn({ view: target }: { view: ViewName }) {
   );
 }
 
-function SidebarContent() {
-  const { view, goDashboard, goJamaahList, goMonitoring, goAI, goTelemedicine } = useApp();
-  const goFns: Record<ViewName, () => void> = {
-    dashboard: goDashboard, jamaah: goJamaahList, detail: goJamaahList, monitoring: goMonitoring, ai: goAI, telemedicine: () => goTelemedicine(),
+function SidebarContent({
+  nav, isJamaah,
+}: {
+  nav: { view: ViewName; label: string; icon: LucideIcon; desc: string }[];
+  isJamaah: boolean;
+}) {
+  const {
+    view, goDashboard, goJamaahList, goMonitoring, goAI, goTelemedicine,
+    goJamaahDashboard, goJamaahRiwayat, goJamaahChat, goJamaahProfil,
+  } = useApp();
+
+  const goMap: Partial<Record<ViewName, () => void>> = {
+    dashboard: goDashboard,
+    jamaah: goJamaahList,
+    monitoring: goMonitoring,
+    ai: goAI,
+    telemedicine: () => goTelemedicine(),
+    "jamaah-dashboard": goJamaahDashboard,
+    "jamaah-riwayat": () => goJamaahRiwayat(),
+    "jamaah-chat": goJamaahChat,
+    "jamaah-profil": goJamaahProfil,
   };
+
   return (
     <>
       <div className="flex items-center gap-2.5 border-b border-sidebar-border px-5 py-4">
@@ -159,19 +243,24 @@ function SidebarContent() {
         </span>
         <div>
           <p className="text-sm font-bold leading-tight">SiHaji Care</p>
-          <p className="text-xs text-sidebar-foreground/60">EHHR · Pra → Pasca Haji</p>
+          <p className="text-xs text-sidebar-foreground/60">
+            {isJamaah ? "Portal Jamaah" : "EHHR · Pra → Pasca Haji"}
+          </p>
         </div>
       </div>
 
       <nav className="flex-1 space-y-1 p-3">
-        <p className="px-2 py-1 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/40">Menu Utama</p>
-        {NAV.map((n) => {
-          const active = view === n.view || (n.view === "jamaah" && view === "detail");
+        <p className="px-2 py-1 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/40">
+          {isJamaah ? "Menu Saya" : "Menu Utama"}
+        </p>
+        {nav.map((n) => {
+          const active = view === n.view;
           const Icon = n.icon;
+          const go = goMap[n.view];
           return (
             <button
               key={n.view}
-              onClick={goFns[n.view]}
+              onClick={go}
               className={cn(
                 "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition",
                 active
@@ -182,7 +271,9 @@ function SidebarContent() {
               <Icon className="h-5 w-5 shrink-0" />
               <div className="min-w-0">
                 <p className="text-sm font-medium">{n.label}</p>
-                <p className={cn("text-xs", active ? "text-sidebar-primary-foreground/70" : "text-sidebar-foreground/50")}>{n.desc}</p>
+                <p className={cn("text-xs", active ? "text-sidebar-primary-foreground/70" : "text-sidebar-foreground/50")}>
+                  {n.desc}
+                </p>
               </div>
             </button>
           );
@@ -191,9 +282,13 @@ function SidebarContent() {
 
       <div className="border-t border-sidebar-border p-3">
         <div className="rounded-lg bg-sidebar-accent/50 p-3">
-          <p className="text-xs font-semibold text-sidebar-accent-foreground">Pendekatan Holistik</p>
+          <p className="text-xs font-semibold text-sidebar-accent-foreground">
+            {isJamaah ? "Kesehatan Anda" : "Pendekatan Holistik"}
+          </p>
           <p className="mt-1 text-xs text-sidebar-foreground/60">
-            Biologis · Psikologis · Sosial · Spiritual — sesuai Kedokteran Keluarga
+            {isJamaah
+              ? "Pantau kesehatan Anda secara mandiri"
+              : "Biologis · Psikologis · Sosial · Spiritual"}
           </p>
         </div>
         <div className="mt-2 px-1">
@@ -224,10 +319,7 @@ function ThemeToggle() {
 }
 
 function UserChip({
-  user,
-  role,
-  onSignOut,
-  compact,
+  user, role, onSignOut, compact,
 }: {
   user: User;
   role: string | null;
