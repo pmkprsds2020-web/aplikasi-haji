@@ -582,9 +582,63 @@ function labBadge(value: number | null, key: string): React.ReactNode {
 }
 
 // ===== Pasca Lab View — table + input button + badges =====
+// Fetches directly from Supabase (not Prisma). After INSERT, reloads from DB.
 function PascaLabView({ detail, onChanged }: { detail: JamaahDetail; onChanged: () => void }) {
   const [dialogOpen, setDialogOpen] = React.useState(false);
-  const labs = detail.pascaHajjLabs ?? [];
+  const [labs, setLabs] = React.useState<PascaHajjLabData[]>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  // ===== Fetch lab history from Supabase =====
+  const fetchLabHistory = React.useCallback(async () => {
+    console.log("[PascaLab] Fetching lab history from Supabase for jamaah:", detail.id);
+    setLoading(true);
+    try {
+      const supabase = (await import("@/lib/supabase/client")).createClient();
+      const { data, error } = await supabase
+        .from("pasca_hajj_lab")
+        .select("*")
+        .eq("jamaah_id", detail.id)
+        .order("created_at", { ascending: false });
+      console.log("[PascaLab] Supabase Response:", data);
+      console.log("[PascaLab] Supabase Error:", error);
+      if (error) {
+        console.error("[PascaLab] Fetch error:", error);
+        toast.error(`Gagal memuat data lab: ${error.message}`);
+      } else {
+        // Map snake_case to camelCase for the UI
+        const mapped = (data ?? []).map((row: Record<string, unknown>) => ({
+          id: row.id as string,
+          jamaahId: row.jamaah_id as string,
+          hb: row.hb as number | null,
+          leukosit: row.leukosit as number | null,
+          gdp: row.gdp as number | null,
+          gd2pp: row.gd2pp as number | null,
+          hba1c: row.hba1c as number | null,
+          kolesterol: row.kolesterol as number | null,
+          ldl: row.ldl as number | null,
+          hdl: row.hdl as number | null,
+          trigliserida: row.trigliserida as number | null,
+          sgot: row.sgot as number | null,
+          sgpt: row.sgpt as number | null,
+          ureum: row.ureum as number | null,
+          kreatinin: row.kreatinin as number | null,
+          catatan: row.catatan as string | null,
+          createdAt: row.created_at as string,
+        }));
+        setLabs(mapped);
+      }
+    } catch (err) {
+      console.error("[PascaLab] Exception:", err);
+      toast.error("Gagal memuat data lab");
+    } finally {
+      setLoading(false);
+    }
+  }, [detail.id]);
+
+  React.useEffect(() => {
+    fetchLabHistory();
+  }, [fetchLabHistory]);
+
   const sorted = [...labs].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
@@ -601,7 +655,11 @@ function PascaLabView({ detail, onChanged }: { detail: JamaahDetail; onChanged: 
         </Button>
       </div>
 
-      {sorted.length === 0 ? (
+      {loading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : sorted.length === 0 ? (
         <EmptyState
           icon={TestTube}
           title="Belum ada data lab pasca haji"
@@ -727,7 +785,11 @@ function PascaLabView({ detail, onChanged }: { detail: JamaahDetail; onChanged: 
         jamaahId={detail.id}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        onSaved={onChanged}
+        onSaved={() => {
+          // After save, reload from Supabase (not local state)
+          fetchLabHistory();
+          onChanged();
+        }}
       />
     </div>
   );
@@ -758,23 +820,69 @@ function PascaLabDialog({
 
   const set = (k: string, v: string) => setVals((d) => ({ ...d, [k]: v }));
 
+  // ===== handleSave: INSERT directly to Supabase pasca_hajj_lab =====
   async function handleSave() {
+    console.log("========== Saving Lab... ==========");
+
+    // Build payload — all fields as numbers or null, matching Supabase schema exactly
+    const toNum = (v: string | undefined): number | null => {
+      if (!v || v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const payload = {
+      jamaah_id: jamaahId,
+      hb: toNum(vals.hb),
+      leukosit: toNum(vals.leukosit),
+      gdp: toNum(vals.gdp),
+      gd2pp: toNum(vals.gd2pp),
+      hba1c: toNum(vals.hba1c),
+      kolesterol: toNum(vals.kolesterol),
+      ldl: toNum(vals.ldl),
+      hdl: toNum(vals.hdl),
+      trigliserida: toNum(vals.trigliserida),
+      sgot: toNum(vals.sgot),
+      sgpt: toNum(vals.sgpt),
+      ureum: toNum(vals.ureum),
+      kreatinin: toNum(vals.kreatinin),
+      catatan: catatan || null,
+    };
+
+    console.log("Payload:", JSON.stringify(payload, null, 2));
+    console.log("jamaah_id:", jamaahId);
+
     setSaving(true);
     try {
-      const res = await fetch(`/api/jamaah/${jamaahId}/pasca-lab`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...vals, catatan }),
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error ?? "Gagal menyimpan hasil lab");
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
+
+      // ===== INSERT to Supabase =====
+      const { data, error } = await supabase
+        .from("pasca_hajj_lab")
+        .insert(payload);
+
+      console.log("Supabase Response:", data);
+      console.log("Supabase Error:", error);
+      console.log("===================================");
+
+      if (error) {
+        // Show exact Supabase/PostgreSQL error
+        console.error("[PascaLab] INSERT failed:", error);
+        const errMsg = error.message || String(error);
+        const errCode = (error as { code?: string }).code ?? "";
+        toast.error(`Gagal menyimpan lab [${errCode}]: ${errMsg}`);
+        return; // Do NOT close dialog — let user see the error
       }
-      toast.success("Hasil lab pasca haji tersimpan");
-      onSaved();
+
+      // ===== INSERT succeeded — reload from Supabase =====
+      console.log("[PascaLab] INSERT succeeded — calling onSaved to reload from DB");
+      toast.success("Hasil lab pasca haji tersimpan di Supabase");
+      onSaved();       // triggers fetchLabHistory() which reloads from Supabase
       onOpenChange(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal menyimpan");
+    } catch (err) {
+      console.error("[PascaLab] Exception during save:", err);
+      toast.error(`Exception: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSaving(false);
     }
