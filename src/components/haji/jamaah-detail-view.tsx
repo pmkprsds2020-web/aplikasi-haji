@@ -872,46 +872,122 @@ function PascaScreeningList({
   detail: JamaahDetail;
   onOpen: (jenis: JenisSkrining) => void;
 }) {
+  const sortedHistory = [...detail.screenings].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+
   const latestByJenis: Record<string, JamaahDetail["screenings"][number]> = {};
   for (const s of detail.screenings) {
     const ex = latestByJenis[s.jenis];
     if (!ex || new Date(s.createdAt) > new Date(ex.createdAt)) latestByJenis[s.jenis] = s;
   }
+
   return (
-    <div className="space-y-3">
-      {(["BIOLOGIS", "PSIKOLOGIS", "SOSIAL", "SPIRITUAL"] as const).map((dim) => {
-        const jenisList = SCREENING_ORDER.filter((jns) => SCREENING_META[jns].dimensi === dim);
-        return (
-          <div key={dim}>
-            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Dimensi {DIMENSI_META[dim].label}
-            </p>
-            <div className="grid gap-2 md:grid-cols-2">
-              {jenisList.map((jenis) => {
-                const meta = SCREENING_META[jenis];
-                const latest = latestByJenis[jenis];
-                const Icon = getScreeningIcon(meta.icon);
-                return (
-                  <div key={jenis} className="flex items-center gap-3 rounded-lg border border-border/60 p-2.5">
-                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{meta.judul}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {latest ? `${latest.skor} · H${latest.hariKe}` : "Belum"}
-                      </p>
-                    </div>
-                    <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => onOpen(jenis)}>
-                      Skrining
-                    </Button>
-                  </div>
-                );
-              })}
+    <div className="space-y-4">
+      {/* ===== Tabel Riwayat Skrining ===== */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Riwayat Skrining Pasca Haji</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {sortedHistory.length === 0 ? (
+            <EmptyState
+              icon={ClipboardList}
+              title="Belum ada riwayat skrining"
+              desc="Pilih instrumen di bawah untuk mulai skrining pasca haji."
+            />
+          ) : (
+            <div className="max-h-72 overflow-y-auto scrollbar-thin">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs">Tanggal</TableHead>
+                    <TableHead className="text-xs">Hari</TableHead>
+                    <TableHead className="text-xs">Instrumen</TableHead>
+                    <TableHead className="text-xs">Skor</TableHead>
+                    <TableHead className="text-xs">Catatan</TableHead>
+                    <TableHead className="text-xs">Aksi</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sortedHistory.map((s) => {
+                    const meta = SCREENING_META[s.jenis as JenisSkrining];
+                    return (
+                      <TableRow key={s.id}>
+                        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                          {formatTanggalWaktu(s.createdAt)}
+                        </TableCell>
+                        <TableCell className="text-xs">H{s.hariKe}</TableCell>
+                        <TableCell className="text-xs font-medium">
+                          {meta?.judul ?? s.jenis}
+                        </TableCell>
+                        <TableCell>
+                          {s.skor && (
+                            <Badge variant="secondary" className="text-xs">{s.skor}</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="max-w-[160px] truncate text-xs text-muted-foreground">
+                          {s.catatan ?? "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => onOpen(s.jenis as JenisSkrining)}
+                          >
+                            Ulangi
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </div>
-          </div>
-        );
-      })}
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ===== Grid Instrumen Skrining ===== */}
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Instrumen Skrining
+        </p>
+        {(["BIOLOGIS", "PSIKOLOGIS", "SOSIAL", "SPIRITUAL"] as const).map((dim) => {
+          const jenisList = SCREENING_ORDER.filter((jns) => SCREENING_META[jns].dimensi === dim);
+          return (
+            <div key={dim} className="mb-3">
+              <p className="mb-1.5 text-[11px] font-medium text-muted-foreground/70">
+                Dimensi {DIMENSI_META[dim].label}
+              </p>
+              <div className="grid gap-2 md:grid-cols-2">
+                {jenisList.map((jenis) => {
+                  const meta = SCREENING_META[jenis];
+                  const latest = latestByJenis[jenis];
+                  const Icon = getScreeningIcon(meta.icon);
+                  return (
+                    <div key={jenis} className="flex items-center gap-3 rounded-lg border border-border/60 p-2.5">
+                      <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <Icon className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{meta.judul}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {latest ? `${latest.skor} · H${latest.hariKe} · ${formatTanggal(latest.createdAt)}` : "Belum diskrining"}
+                        </p>
+                      </div>
+                      <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => onOpen(jenis)}>
+                        Skrining
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -4,11 +4,7 @@ import * as React from "react";
 import {
   Card, CardContent, CardHeader, CardTitle,
 } from "@/components/ui/card";
-import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip,
-} from "recharts";
-import { CheckCircle2, Circle, AlertCircle, TrendingUp } from "lucide-react";
+import { CheckCircle2, Circle, AlertCircle } from "lucide-react";
 import type { JamaahDetail, RiskLevel } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -113,54 +109,14 @@ export function PascaTimeline({ jamaah }: Props) {
 }
 
 // Grafik perubahan tren pasca haji
+// Grafik perubahan tren pasca haji — Risiko per Milestone dihilangkan sesuai permintaan.
+// Jika tidak ada data TTV, tidak menampilkan apa-apa.
 export function PascaTrendCharts({ jamaah }: Props) {
   const sorted = [...jamaah.vitalSigns].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
   );
-
-  // Risk trend per milestone
-  const riskData = MILESTONES.map((h) => {
-    const r = milestoneRisk(jamaah, h);
-    return {
-      label: `H${h}`,
-      level: r,
-      skor: r === "MERAH" ? 3 : r === "KUNING" ? 2 : r === "HIJAU" ? 1 : null,
-    };
-  }).filter((d) => d.skor !== null);
-
   if (!sorted.length) {
-    return (
-      <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base">Tren Pasca Haji</CardTitle></CardHeader>
-        <CardContent><p className="py-6 text-center text-sm text-muted-foreground">Belum ada data untuk grafik tren.</p></CardContent>
-      </Card>
-    );
+    return null;
   }
-
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <TrendingUp className="h-4 w-4 text-primary" /> Perubahan Risiko per Milestone
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {riskData.length > 0 ? (
-          <div className="h-[180px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={riskData} margin={{ top: 5, right: 10, left: -18, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.5} />
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" />
-                <YAxis domain={[0, 4]} ticks={[1, 2, 3]} tickFormatter={(v) => v === 1 ? "Hijau" : v === 2 ? "Kuning" : v === 3 ? "Merah" : ""} tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" />
-                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid var(--border)", background: "var(--popover)", color: "var(--popover-foreground)", fontSize: 12 }} formatter={(v: number) => v === 3 ? "Merah" : v === 2 ? "Kuning" : "Hijau"} />
-                <Line type="monotone" dataKey="skor" name="Risiko" stroke="#f43f5e" strokeWidth={2} dot={{ r: 4, fill: "#f43f5e" }} connectNulls />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        ) : (
-          <p className="py-4 text-center text-sm text-muted-foreground">Belum ada data risiko per milestone.</p>
-        )}
-      </CardContent>
-    </Card>
-  );
+  return null;
 }

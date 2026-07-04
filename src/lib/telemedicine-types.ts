@@ -151,25 +151,29 @@ export interface SkriningFormDef {
 
 export const SKRINING_FORMS_PASCA: SkriningFormDef[] = [
   { jenis: "INFECTIOUS", label: "Skrining Penyakit Menular", phase: "PASCA" },
-  { jenis: "MENTAL", label: "PHQ-9 & GAD-7 (Mental)", phase: "PASCA" },
-  { jenis: "FRAILTY", label: "FRAIL Scale", phase: "PASCA" },
-  { jenis: "FALL_RISK", label: "Risiko Jatuh", phase: "PASCA" },
-  { jenis: "NUTRITION", label: "Nutrisi (MNA-SF)", phase: "PASCA" },
-  { jenis: "SLEEP", label: "Kualitas Tidur (ISI)", phase: "PASCA" },
-  { jenis: "ACTIVITY", label: "Aktivitas Fisik", phase: "PASCA" },
-  { jenis: "SPIRITUAL", label: "Spiritual", phase: "PASCA" },
-  { jenis: "FAMILY_APGAR", label: "Family APGAR", phase: "PASCA" },
+  { jenis: "CHRONIC", label: "Monitoring Penyakit Kronis", phase: "PASCA" },
+  { jenis: "FRAILTY", label: "Skrining Frailty Lansia", phase: "PASCA" },
+  { jenis: "FALL_RISK", label: "Skrining Risiko Jatuh", phase: "PASCA" },
+  { jenis: "NUTRITION", label: "Skrining Nutrisi (MNA-SF)", phase: "PASCA" },
+  { jenis: "MENTAL", label: "Skrining Kesehatan Mental (PHQ-9 & GAD-7)", phase: "PASCA" },
+  { jenis: "SLEEP", label: "Skrining Kualitas Tidur (ISI)", phase: "PASCA" },
+  { jenis: "ACTIVITY", label: "Skrining Aktivitas Fisik", phase: "PASCA" },
+  { jenis: "SPIRITUAL", label: "Skrining Spiritual Pasca Haji", phase: "PASCA" },
+  { jenis: "FAMILY_APGAR", label: "Family Assessment (APGAR)", phase: "PASCA" },
+  { jenis: "FOLLOWUP", label: "Skrining Kebutuhan Tindak Lanjut", phase: "PASCA" },
 ];
 
 export const SKRINING_FORMS_PRA: SkriningFormDef[] = [
   { jenis: "FRAIL", label: "FRAIL Scale", phase: "PRA" },
-  { jenis: "MNA", label: "MNA-SF (Nutrisi)", phase: "PRA" },
-  { jenis: "MINICOG", label: "Mini-Cog (Kognitif)", phase: "PRA" },
+  { jenis: "MNA", label: "Mini Nutritional Assessment", phase: "PRA" },
+  { jenis: "MINICOG", label: "Mini-Cog", phase: "PRA" },
   { jenis: "MORSE", label: "Morse Fall Scale", phase: "PRA" },
-  { jenis: "BARTHEL", label: "Barthel Index (ADL)", phase: "PRA" },
-  { jenis: "PHQ9", label: "PHQ-9 (Depresi)", phase: "PRA" },
-  { jenis: "GAD7", label: "GAD-7 (Cemas)", phase: "PRA" },
+  { jenis: "BARTHEL", label: "Barthel Index", phase: "PRA" },
+  { jenis: "PHQ9", label: "PHQ-9", phase: "PRA" },
+  { jenis: "GAD7", label: "GAD-7", phase: "PRA" },
   { jenis: "APGAR", label: "Family APGAR", phase: "PRA" },
+  { jenis: "IPAQ", label: "IPAQ (Short)", phase: "PRA" },
+  { jenis: "WHOQOL", label: "WHOQOL-BREF", phase: "PRA" },
 ];
 
 // ===== Daftar quick actions di chat =====
