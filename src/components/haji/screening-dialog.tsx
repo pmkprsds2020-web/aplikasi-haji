@@ -143,6 +143,14 @@ export function ScreeningDialog({ jamaahId, jenis, open, onOpenChange, onSaved }
   async function handleSave() {
     setSaving(true);
     try {
+      const { validateJamaahId } = await import("@/lib/validate-jamaah-id");
+      const idCheck = validateJamaahId(jamaahId);
+      if (!idCheck.valid) {
+        console.error("[Screening] Invalid jamaah_id:", idCheck.error);
+        toast.error(idCheck.error || "jamaah_id tidak valid");
+        setSaving(false);
+        return;
+      }
       const { createClient } = await import("@/lib/supabase/client");
       const supabase = createClient();
       const payload = {

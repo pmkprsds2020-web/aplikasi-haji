@@ -49,6 +49,14 @@ export function PreHajjLabDialog({ jamaahId, open, onOpenChange, onSaved }: Prop
   async function handleSave() {
     setSaving(true);
     try {
+      const { validateJamaahId } = await import("@/lib/validate-jamaah-id");
+      const idCheck = validateJamaahId(jamaahId);
+      if (!idCheck.valid) {
+        console.error("[PreHajjLab] Invalid jamaah_id:", idCheck.error);
+        toast.error(idCheck.error || "jamaah_id tidak valid");
+        setSaving(false);
+        return;
+      }
       const supabase = createClient();
       const payload = {
         jamaah_id: jamaahId,

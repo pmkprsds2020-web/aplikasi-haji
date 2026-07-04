@@ -44,6 +44,14 @@ export function VitalSignDialog({ jamaahId, open, onOpenChange, onSaved }: Props
   async function handleSave() {
     setSaving(true);
     try {
+      const { validateJamaahId } = await import("@/lib/validate-jamaah-id");
+      const idCheck = validateJamaahId(jamaahId);
+      if (!idCheck.valid) {
+        console.error("[VitalSign] Invalid jamaah_id:", idCheck.error);
+        toast.error(idCheck.error || "jamaah_id tidak valid");
+        setSaving(false);
+        return;
+      }
       const { createClient } = await import("@/lib/supabase/client");
       const supabase = createClient();
       const num = (v: string | undefined): number | null => {
