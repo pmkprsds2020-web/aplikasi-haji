@@ -37,7 +37,8 @@ CREATE INDEX IF NOT EXISTS idx_jamaah_email ON public.jamaah(email);
 CREATE INDEX IF NOT EXISTS idx_jamaah_user_id ON public.jamaah(user_id);
 
 -- ===== Step 7: Update handle_new_user trigger =====
-CREATE OR REPLACE FUNCTION public.handle_new_user()
+DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
+CREATE FUNCTION public.handle_new_user()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -57,7 +58,8 @@ END;
 $$;
 
 -- ===== Step 8: Update RLS helper functions =====
-CREATE OR REPLACE FUNCTION public.is_dokter()
+DROP FUNCTION IF EXISTS public.is_dokter() CASCADE;
+CREATE FUNCTION public.is_dokter()
 RETURNS BOOLEAN
 LANGUAGE sql
 SECURITY DEFINER
@@ -70,7 +72,8 @@ AS $$
   );
 $$;
 
-CREATE OR REPLACE FUNCTION public.current_jamaah_id()
+DROP FUNCTION IF EXISTS public.current_jamaah_id() CASCADE;
+CREATE FUNCTION public.current_jamaah_id()
 RETURNS TEXT
 LANGUAGE sql
 SECURITY DEFINER
