@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import {
   ALERT_RULES,
   type AlertLevel,
@@ -298,7 +298,7 @@ export async function POST(
   { params }: { params: Promise<{ jamaahId: string }> }
 ) {
   const { jamaahId } = await params;
-  const supabase = createAdminClient();
+  const supabase = await createClient();
 
   try {
     // Parallel fetches: jamaah, chat_room, vital_sign, screening
@@ -607,7 +607,7 @@ export async function GET(
   { params }: { params: Promise<{ jamaahId: string }> }
 ) {
   const { jamaahId } = await params;
-  const supabase = createAdminClient();
+  const supabase = await createClient();
 
   try {
     // Parallel: latest summary + chat_room (for serialization) + recent messages

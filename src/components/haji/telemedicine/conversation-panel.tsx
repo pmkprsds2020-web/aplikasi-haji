@@ -17,7 +17,8 @@ import {
 import { toast } from "sonner";
 import {
   type ChatMessageData, type TelemedicineRequestData, type ChatSenderType,
-  type ChatMessageType, QUICK_ACTIONS, type QuickAction,
+  type ChatMessageType, type TelemedicineCategory, type RequestStatus, type FormField,
+  QUICK_ACTIONS, type QuickAction,
 } from "@/lib/telemedicine-types";
 import { DEFAULT_TEMPLATES } from "@/lib/telemedicine-types";
 import { useTelemedicineSocket } from "./use-telemedicine-socket";
@@ -25,6 +26,8 @@ import { useSupabaseChat } from "@/hooks/use-supabase-chat";
 import { formatTanggalWaktu, initials, RISK_STYLE } from "@/lib/format";
 import type { JamaahData } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
+import { ensureRoom } from "@/lib/supabase/telemedicine";
 import { RiskBadge } from "../shared";
 import { QuickActionMenu } from "./quick-action-menu";
 import { TtvFormDialog } from "./ttv-form-dialog";
@@ -127,16 +130,112 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
   const typingDebounce = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingNow = React.useRef(false);
 
-  // ===== Load room (still fetch requests from API; messages come from Supabase hook) =====
+  // ===== Load room (jamaah + pending requests directly from Supabase) =====
+  // Messages come from the `useSupabaseChat` hook (realtime-synced).
   const load = React.useCallback(async () => {
+    // ===== Null-ID validation: silent return (no error toast) =====
+    if (!jamaahId) return;
     try {
-      const res = await fetch(`/api/telemedicine/rooms/${jamaahId}`, { cache: "no-store" });
-      if (!res.ok) return;
-      const data = (await res.json()) as RoomData;
-      setRequests(data.requests ?? []);
-      setJamaah(data.jamaah ?? jamaahProp);
-    } catch {
+      const supabase = createClient();
+
+      // ===== 1. Load jamaah =====
+      const { data: jRow, error: jErr } = await supabase
+        .from("jamaah")
+        .select("*")
+        .eq("id", jamaahId)
+        .maybeSingle();
+      if (jErr) {
+        console.warn("[conversation-panel] jamaah fetch error:", jErr.message);
+      } else if (jRow) {
+        const mapped: JamaahData = {
+          id: String(jRow.id),
+          nama: String(jRow.nama ?? ""),
+          nik: String(jRow.nik ?? ""),
+          kloter: String(jRow.kloter ?? ""),
+          porsi: String(jRow.porsi ?? ""),
+          usia: Number(jRow.usia ?? 0),
+          kelamin: (jRow.kelamin === "P" ? "P" : "L") as "L" | "P",
+          alamat: String(jRow.alamat ?? ""),
+          hp: String(jRow.hp ?? ""),
+          kontakKeluarga: String(jRow.kontak_keluarga ?? ""),
+          tanggalTiba: String(jRow.tanggal_tiba ?? ""),
+          bandara: String(jRow.bandara ?? ""),
+          kabupatenKota: String(jRow.kabupaten_kota ?? ""),
+          puskesmas: String(jRow.puskesmas ?? ""),
+          dokterKeluarga: String(jRow.dokter_keluarga ?? ""),
+          paspor: (jRow.paspor as string | null) ?? null,
+          embarkasi: (jRow.embarkasi as string | null) ?? null,
+          golDarah: (jRow.gol_darah as string | null) ?? null,
+          riwayatPenyakit: (jRow.riwayat_penyakit as string | null) ?? null,
+          riwayatOperasi: (jRow.riwayat_operasi as string | null) ?? null,
+          alergi: (jRow.alergi as string | null) ?? null,
+          obatRutin: (jRow.obat_rutin as string | null) ?? null,
+          statusIstithaah: (jRow.status_istithaah as string | null) ?? null,
+          tanggalBerangkat: (jRow.tanggal_berangkat as string | null) ?? null,
+          tanggalPulang: (jRow.tanggal_pulang as string | null) ?? null,
+          riskLevel: (jRow.risk_level ?? "HIJAU") as JamaahData["riskLevel"],
+          riskSummary: String(jRow.risk_summary ?? ""),
+          createdAt: String(jRow.created_at ?? ""),
+          updatedAt: String(jRow.updated_at ?? ""),
+        };
+        setJamaah(mapped);
+      } else {
+        setJamaah(jamaahProp);
+      }
+
+      // ===== 2. Ensure room exists =====
+      const { room, error: roomErr } = await ensureRoom(jamaahId, "doctor");
+      if (roomErr || !room) {
+        console.warn("[conversation-panel] ensureRoom failed:", roomErr);
+        setRequests([]);
+        return;
+      }
+
+      // ===== 3. Fetch pending telemedicine requests =====
+      const { data: reqRows, error: reqErr } = await supabase
+        .from("telemedicine_request")
+        .select("*")
+        .eq("room_id", room.id)
+        .eq("status", "PENDING")
+        .order("created_at", { ascending: false });
+      if (reqErr) {
+        console.warn("[conversation-panel] requests fetch error:", reqErr.message);
+        setRequests([]);
+        return;
+      }
+      const mappedRequests: TelemedicineRequestData[] = (reqRows ?? []).map((r) => {
+        const row = r as Record<string, unknown>;
+        let fields: FormField[] = [];
+        try {
+          const raw = row.fields as string | null;
+          if (raw) fields = JSON.parse(raw) as FormField[];
+        } catch { fields = []; }
+        let response: Record<string, unknown> | null = null;
+        try {
+          const raw = row.response as string | null;
+          if (raw) response = JSON.parse(raw) as Record<string, unknown>;
+        } catch { response = null; }
+        return {
+          id: String(row.id),
+          roomId: String(row.room_id),
+          jamaahId: String(row.jamaah_id),
+          category: String(row.category) as TelemedicineCategory,
+          subType: (row.sub_type as string | null) ?? null,
+          title: String(row.title ?? ""),
+          fields,
+          status: String(row.status) as RequestStatus,
+          scheduledFor: (row.scheduled_for as string | null) ?? null,
+          submittedAt: (row.submitted_at as string | null) ?? null,
+          response,
+          skor: (row.skor as string | null) ?? null,
+          hariKe: (row.hari_ke as number | null) ?? null,
+          createdAt: String(row.created_at ?? ""),
+        };
+      });
+      setRequests(mappedRequests);
+    } catch (e) {
       // Non-critical — messages are handled by Supabase hook
+      console.warn("[conversation-panel] load error:", e);
     }
   }, [jamaahId, jamaahProp]);
 
@@ -230,21 +329,19 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
   async function sendText(content?: string) {
     const text = (content ?? input).trim();
     if (!text) return;
+    // ===== Null-ID validation: silent return (no error toast) =====
+    if (!jamaahId) return;
     stopTyping();
-    console.log("[sendText] calling supabaseSend with:", { senderType: "DOCTOR", type: "TEXT", content: text });
     const inserted = await supabaseSend({
       senderType: "DOCTOR",
       type: "TEXT",
       content: text,
     });
-    console.log("[sendText] supabaseSend returned:", inserted);
     if (inserted) {
       setInput("");
       toast.success("Pesan terkirim");
     } else {
-      // INSERT returned null — could be error (already alerted) or success-with-null
-      // Still clear input if no error alert was shown
-      setInput("");
+      toast.error("Gagal mengirim pesan");
     }
   }
 

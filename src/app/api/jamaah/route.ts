@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { computeRiskForJamaah } from "@/lib/risk";
 import type {
   JamaahData,
@@ -84,7 +84,7 @@ function mapVital(v: any): VitalSignData {
 // GET /api/jamaah — daftar ringkas semua jamaah
 export async function GET(req: NextRequest) {
   try {
-    const supabase = createAdminClient();
+    const supabase = await createClient();
     const q = req.nextUrl.searchParams.get("q")?.trim() ?? "";
     const risk = req.nextUrl.searchParams.get("risk"); // HIJAU|KUNING|MERAH
     const puskesmas = req.nextUrl.searchParams.get("puskesmas");
@@ -141,7 +141,7 @@ export async function GET(req: NextRequest) {
 // POST /api/jamaah — tambah jamaah baru
 export async function POST(req: NextRequest) {
   try {
-    const supabase = createAdminClient();
+    const supabase = await createClient();
     const body = await req.json();
     const required = [
       "nama",

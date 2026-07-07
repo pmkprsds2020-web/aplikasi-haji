@@ -12,6 +12,8 @@ import {
 } from "@/components/ui/select";
 import { Loader2, Send, GraduationCap, Pill, Paperclip } from "lucide-react";
 import { toast } from "sonner";
+import { createClient } from "@/lib/supabase/client";
+import { ensureRoom, sendChatMessage } from "@/lib/supabase/telemedicine";
 
 // =================== Edukasi ===================
 const EDUKASI_TOPICS = [
@@ -42,27 +44,48 @@ export function EdukasiFormDialog({ jamaahId, open, onOpenChange, onSent }: Eduk
   async function handleSend() {
     setSending(true);
     try {
-      const res = await fetch(`/api/telemedicine/rooms/${jamaahId}/request`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          category: "EDUKASI",
-          subType: topic,
-          title: `Edukasi: ${EDUKASI_TOPICS.find((t) => t.value === topic)?.label ?? topic}`,
-          fields: [],
-        }),
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error ?? "Gagal mengirim edukasi");
+      // ===== 1. Ensure room exists =====
+      const { room, error: roomErr } = await ensureRoom(jamaahId, "doctor");
+      if (roomErr || !room) {
+        throw new Error(roomErr || "Gagal membuat room telemedicine");
       }
-      // If doctor added a custom message, also send as TEXT
+
+      const title = `Edukasi: ${EDUKASI_TOPICS.find((t) => t.value === topic)?.label ?? topic}`;
+
+      // ===== 2. Insert telemedicine_request =====
+      const supabase = createClient();
+      const { data: newReq, error: reqErr } = await supabase
+        .from("telemedicine_request")
+        .insert({
+          room_id: room.id,
+          jamaah_id: jamaahId,
+          category: "EDUKASI",
+          sub_type: topic,
+          title,
+          fields: JSON.stringify([]),
+          status: "PENDING",
+        })
+        .select("*")
+        .single();
+      if (reqErr) throw new Error(`[${reqErr.code}] ${reqErr.message}`);
+
+      // ===== 3. Send EDUKASI chat message (linked to request) =====
+      const { error: msgErr } = await sendChatMessage(room.id, {
+        senderType: "DOCTOR",
+        type: "EDUKASI",
+        content: title,
+        requestId: newReq.id,
+      });
+      if (msgErr) throw new Error(msgErr);
+
+      // ===== 4. If doctor added a custom message, also send as TEXT =====
       if (pesan.trim()) {
-        await fetch(`/api/telemedicine/rooms/${jamaahId}/message`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "TEXT", content: pesan.trim() }),
+        const { error: textErr } = await sendChatMessage(room.id, {
+          senderType: "DOCTOR",
+          type: "TEXT",
+          content: pesan.trim(),
         });
+        if (textErr) throw new Error(textErr);
       }
       toast.success("Edukasi terkirim");
       onSent();
@@ -132,26 +155,38 @@ export function ObatFormDialog({ jamaahId, open, onOpenChange, onSent }: ObatPro
     }
     setSending(true);
     try {
-      const res = await fetch(`/api/telemedicine/rooms/${jamaahId}/request`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          category: "OBAT",
-          subType: "OBAT",
-          title: "Instruksi Pengobatan",
-          fields: [],
-        }),
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error ?? "Gagal mengirim instruksi obat");
+      // ===== 1. Ensure room exists =====
+      const { room, error: roomErr } = await ensureRoom(jamaahId, "doctor");
+      if (roomErr || !room) {
+        throw new Error(roomErr || "Gagal membuat room telemedicine");
       }
-      // Send the actual instruction as a TEXT message
-      await fetch(`/api/telemedicine/rooms/${jamaahId}/message`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "TEXT", content: pesan.trim() }),
+
+      // ===== 2. Insert telemedicine_request =====
+      const supabase = createClient();
+      const { data: newReq, error: reqErr } = await supabase
+        .from("telemedicine_request")
+        .insert({
+          room_id: room.id,
+          jamaah_id: jamaahId,
+          category: "OBAT",
+          sub_type: "OBAT",
+          title: "Instruksi Pengobatan",
+          fields: JSON.stringify([]),
+          status: "PENDING",
+        })
+        .select("*")
+        .single();
+      if (reqErr) throw new Error(`[${reqErr.code}] ${reqErr.message}`);
+
+      // ===== 3. Send OBAT chat message with the actual instruction =====
+      const { error: msgErr } = await sendChatMessage(room.id, {
+        senderType: "DOCTOR",
+        type: "OBAT",
+        content: pesan.trim(),
+        requestId: newReq.id,
       });
+      if (msgErr) throw new Error(msgErr);
+
       toast.success("Instruksi obat terkirim");
       onSent();
       onOpenChange(false);
@@ -216,19 +251,21 @@ export function FileSendDialog({ jamaahId, open, onOpenChange, onSent }: FilePro
   async function handleSend() {
     setSending(true);
     try {
-      const res = await fetch(`/api/telemedicine/rooms/${jamaahId}/message`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: fileType,
-          content: caption.trim() || `[${FILE_TYPES.find((f) => f.value === fileType)?.label}]`,
-          attachmentName: `placeholder-${fileType.toLowerCase()}.bin`,
-        }),
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error ?? "Gagal mengirim file");
+      // ===== 1. Ensure room exists =====
+      const { room, error: roomErr } = await ensureRoom(jamaahId, "doctor");
+      if (roomErr || !room) {
+        throw new Error(roomErr || "Gagal membuat room telemedicine");
       }
+
+      // ===== 2. Send attachment placeholder message =====
+      const { error: msgErr } = await sendChatMessage(room.id, {
+        senderType: "DOCTOR",
+        type: fileType,
+        content: caption.trim() || `[${FILE_TYPES.find((f) => f.value === fileType)?.label}]`,
+        attachmentName: `placeholder-${fileType.toLowerCase()}.bin`,
+      });
+      if (msgErr) throw new Error(msgErr);
+
       toast.success(`${FILE_TYPES.find((f) => f.value === fileType)?.label} terkirim`);
       onSent();
       onOpenChange(false);

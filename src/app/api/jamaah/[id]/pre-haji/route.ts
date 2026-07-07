@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import type {
   PreHajjBundle,
   PreHajjVitalData,
@@ -190,7 +190,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const supabase = createAdminClient();
+    const supabase = await createClient();
 
     // Fetch jamaah + all 9 pre_hajj_* tables in parallel
     const [

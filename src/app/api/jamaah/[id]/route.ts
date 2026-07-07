@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import type {
   JamaahData,
   ScreeningData,
@@ -113,7 +113,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const supabase = createAdminClient();
+    const supabase = await createClient();
 
     const [jRes, scrRes, vitRes, labRes] = await Promise.all([
       supabase.from("jamaah").select("*").eq("id", id).maybeSingle(),
@@ -178,7 +178,7 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    const supabase = createAdminClient();
+    const supabase = await createClient();
     const body = await req.json();
 
     // Verify existing jamaah
@@ -265,7 +265,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const supabase = createAdminClient();
+    const supabase = await createClient();
 
     // Find chat rooms for this jamaah (to delete their messages)
     const { data: rooms, error: roomErr } = await supabase

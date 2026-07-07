@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { computeRiskForJamaah } from "@/lib/risk";
 import { SCREENING_META } from "@/lib/screening-meta";
 import type {
@@ -92,7 +92,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const supabase = createAdminClient();
+    const supabase = await createClient();
 
     const [jRes, scrRes, vitRes] = await Promise.all([
       supabase.from("jamaah").select("*").eq("id", id).maybeSingle(),

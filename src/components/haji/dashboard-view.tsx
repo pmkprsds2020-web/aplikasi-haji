@@ -11,14 +11,18 @@ import {
   CartesianGrid, Tooltip,
 } from "recharts";
 import {
-  Users, AlertTriangle, ShieldCheck, Activity, RefreshCw, Plane,
+  Users, AlertTriangle, ShieldCheck, Activity, RefreshCw, Plane, Loader2,
   ChevronRight, Stethoscope, CalendarClock, HeartPulse, Brain, Users as UsersIcon, Sparkles,
+  Bell, MessageSquare,
 } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { RISK_STYLE, hariSejak, formatTanggal, initials, kelaminLabel } from "@/lib/format";
 import { RiskBadge, RiskDot, EmptyState } from "./shared";
 import type { JamaahData, RiskLevel } from "@/lib/types";
 import { DIMENSI_META, SCREENING_META } from "@/lib/screening-meta";
+import { loadDashboardJamaahList, loadDashboardStats, type DashboardStats } from "@/lib/supabase/dashboard";
+import { subscribeToRoomsList } from "@/lib/supabase/telemedicine";
+import { toast } from "sonner";
 
 interface ListItem extends JamaahData {
   screeningCount: number;
@@ -27,30 +31,66 @@ interface ListItem extends JamaahData {
 export function DashboardView() {
   const { goDetail, goJamaahList, goMonitoring, goAI, refreshKey, bumpRefresh } = useApp();
   const [list, setList] = React.useState<ListItem[]>([]);
+  const [stats, setStats] = React.useState<DashboardStats | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
 
+  // ===== Load ALL data directly from Supabase using Promise.allSettled =====
+  // If one query fails, the other still loads — dashboard never goes blank.
   const load = React.useCallback(async () => {
     setLoading(true);
-    try {
-      const res = await fetch("/api/jamaah");
-      const { jamaah } = await res.json();
-      setList(jamaah as ListItem[]);
-    } catch {
+    setErrorMsg(null);
+    console.log("[Dashboard] Loading data from Supabase...");
+    const results = await Promise.allSettled([
+      loadDashboardJamaahList(),
+      loadDashboardStats(),
+    ]);
+    // Jamaah list
+    if (results[0].status === "fulfilled") {
+      const { list: jamaahList, error: listErr } = results[0].value;
+      if (listErr) { console.error("[Dashboard] Jamaah list error:", listErr); setErrorMsg(listErr); }
+      console.log(`[Dashboard] Jamaah loaded: ${jamaahList.length} rows`);
+      setList(jamaahList as ListItem[]);
+    } else {
+      console.error("[Dashboard] Jamaah list rejected:", results[0].reason);
+      setErrorMsg(String(results[0].reason));
       setList([]);
-    } finally {
-      setLoading(false);
     }
+    // Stats
+    if (results[1].status === "fulfilled") {
+      const { stats: s, error: statsErr } = results[1].value;
+      if (statsErr) console.error("[Dashboard] Stats error:", statsErr);
+      console.log("[Dashboard] Stats loaded:", s);
+      setStats(s);
+    } else {
+      console.error("[Dashboard] Stats rejected:", results[1].reason);
+      setStats(null);
+    }
+    setLoading(false);
+    console.log("[Dashboard] Loading complete.");
   }, []);
 
   React.useEffect(() => {
     load();
   }, [load, refreshKey]);
 
-  const total = list.length;
-  const merah = list.filter((j) => j.riskLevel === "MERAH").length;
-  const kuning = list.filter((j) => j.riskLevel === "KUNING").length;
-  const hijau = list.filter((j) => j.riskLevel === "HIJAU").length;
-  const lansia = list.filter((j) => j.usia >= 60).length;
+  // ===== Realtime: auto-refresh when chat_room or chat_message changes =====
+  React.useEffect(() => {
+    const unsub = subscribeToRoomsList({
+      onChange: () => { setTimeout(() => loadDashboardStats().then(({ stats: s }) => setStats(s)), 500); },
+    });
+    return unsub;
+  }, []);
+
+  // Use real stats from Supabase (fallback to computed-from-list if stats not loaded yet).
+  const total = stats?.total ?? list.length;
+  const merah = stats?.merah ?? list.filter((j) => j.riskLevel === "MERAH").length;
+  const kuning = stats?.kuning ?? list.filter((j) => j.riskLevel === "KUNING").length;
+  const hijau = stats?.hijau ?? list.filter((j) => j.riskLevel === "HIJAU").length;
+  const lansia = stats?.lansia ?? list.filter((j) => j.usia >= 60).length;
+  const activeChats = stats?.activeChats ?? 0;
+  const unreadNotifications = stats?.unreadNotifications ?? 0;
+  const monitoringToday = stats?.monitoringToday ?? 0;
 
   const riskData = [
     { name: "Merah (Risiko Tinggi)", value: merah, level: "MERAH" as RiskLevel },
@@ -93,7 +133,7 @@ export function DashboardView() {
         </div>
       </div>
 
-      {/* Stat cards */}
+      {/* Stat cards — all from Supabase counts */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard icon={Users} label="Total Jamaah" value={total} tone="primary" />
         <StatCard icon={AlertTriangle} label="Risiko Tinggi" value={merah} tone="merah" onClick={goJamaahList} />
@@ -101,6 +141,19 @@ export function DashboardView() {
         <StatCard icon={ShieldCheck} label="Stabil" value={hijau} tone="hijau" />
         <StatCard icon={HeartPulse} label="Lansia (≥60 th)" value={lansia} tone="primary" />
       </div>
+
+      {/* Secondary stat row — chats, notifications, monitoring today */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <StatCard icon={MessageSquare} label="Chat Aktif" value={activeChats} tone="primary" />
+        <StatCard icon={Bell} label="Notifikasi Belum Dibaca" value={unreadNotifications} tone="merah" />
+        <StatCard icon={Activity} label="Monitoring Hari Ini" value={monitoringToday} tone="kuning" />
+      </div>
+
+      {errorMsg && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          ⚠️ {errorMsg}
+        </div>
+      )}
 
       {loading ? (
         <div className="grid gap-4 lg:grid-cols-3">

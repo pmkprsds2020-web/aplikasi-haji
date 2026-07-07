@@ -8,6 +8,7 @@ import {
 import { cn } from "@/lib/utils";
 import { RISK_STYLE } from "@/lib/format";
 import type { RiskLevel } from "@/lib/types";
+import { loadTelemedicineDashboardStats } from "@/lib/supabase/telemedicine";
 
 export interface DashboardStats {
   unread: number;
@@ -43,10 +44,9 @@ export function TelemedicineDashboardWidget({ onFilter, activeFilter, refreshKey
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/telemedicine/dashboard", { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as DashboardStats;
-      setStats(data);
+      const { stats, error } = await loadTelemedicineDashboardStats();
+      if (error) throw new Error(error);
+      setStats(stats);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Gagal memuat dashboard");
       setStats({ unread: 0, pendingForms: 0, highRisk: 0, online: 0, followUp: 0 });

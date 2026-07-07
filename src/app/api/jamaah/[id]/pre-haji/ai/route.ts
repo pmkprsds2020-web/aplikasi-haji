@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 
 // ===== Row shapes (snake_case from Supabase) =====
 
@@ -332,7 +332,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const supabase = createAdminClient();
+  const supabase = await createClient();
 
   try {
     // Parallel fetches: jamaah + all pre_hajj_* tables

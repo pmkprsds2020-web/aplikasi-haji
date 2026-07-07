@@ -958,3 +958,192 @@ Stage Summary:
 - PerJamaahAI queries Supabase directly for jamaah profile (no API 404)
 - All 11 API routes use createAdminClient() + error handling + snake_case↔camelCase mapping
 - serialize.ts recomputeAndSaveRisk uses Supabase (fire-and-forget, try/catch)
+
+---
+Task ID: TELE-FIX-1
+Agent: code-writer (sub-agent)
+Task: Replace 4 missing telemedicine API endpoint calls with direct Supabase browser-client queries
+
+Work Log:
+- Read /home/z/my-project/worklog.md to understand prior work (Prisma → Supabase migration done in PRISMA-FIX-A/B; telemedicine helper lib `@/lib/supabase/telemedicine.ts` already exports `loadRoomsList`, `ensureRoom`, `sendChatMessage`, `markRoomReadByDoctor`, `loadTelemedicineDashboardStats`, `subscribeToRoomsList`).
+- Read all 4 target files + supporting libs (`@/lib/supabase/telemedicine.ts`, `@/lib/supabase/client.ts`, `@/lib/telemedicine-types.ts`, `@/lib/types.ts`) to plan changes.
+- Verified the 4 missing endpoints are NOT in `src/app/api/telemedicine/` (only `rooms/[jamaahId]/{request,smart-monitoring,ai-summary}/route.ts` and `request/[requestId]/submit/route.ts` exist) — confirming the frontend 404s described in the task.
+- Wrote detailed work record to `/home/z/my-project/agent-ctx/TELE-FIX-1-code-writer.md` for downstream agents.
+
+Files modified (4):
+
+1. `src/components/haji/telemedicine/telemedicine-view.tsx`
+   - Added imports: `loadRoomsList`, `markRoomReadByDoctor`, `subscribeToRoomsList`, `type RoomListItem as SupabaseRoom` from `@/lib/supabase/telemedicine`; added `ChatSenderType`, `ChatMessageType` from `@/lib/telemedicine-types`.
+   - Changed local `RoomListItem.jamaah` from `JamaahData` → `JamaahData | null` (Supabase helper returns nullable jamaah when jamaah row was deleted).
+   - Added `mapSupabaseRoom` useCallback: converts Supabase `RoomListItem` (snake_case `lastMessage: ChatMessageRow`) → local `RoomListItem` (camelCase `lastMessage: ChatMessageData`). When `jamaah` is present, maps partial Supabase jamaah → full `JamaahData` with sensible defaults ("") for fields not returned by helper.
+   - Replaced `fetch("/api/telemedicine/rooms")` with `await loadRoomsList()` + `.map(mapSupabaseRoom)`. Error → `toast.error(e.message)`.
+   - Replaced `fetch("/api/telemedicine/rooms/${r.jamaahId}/read", { method: "POST" })` with `markRoomReadByDoctor(r.id)` (uses `r.id` = room ID, NOT jamaahId). Wrapped in `.catch()` for non-fatal logging.
+   - Added `subscribeToRoomsList()` subscription: ONE channel "chat_room:all" listening for any changes on `chat_room` + `chat_message` tables. Debounced 400ms reload + `setDashRefresh((k) => k + 1)`. Cleanup clears timeout + removes channel.
+   - Added defensive null check in `RoomRow`: if `room.jamaah` is null, renders a placeholder row ("Jamaah tidak ditemukan" + last message content + unread badge). Otherwise renders the normal avatar/name/risk row.
+
+2. `src/components/haji/telemedicine/telemedicine-dashboard-widget.tsx`
+   - Added import: `loadTelemedicineDashboardStats` from `@/lib/supabase/telemedicine`.
+   - Replaced `fetch("/api/telemedicine/dashboard")` + `await res.json() as DashboardStats` with `await loadTelemedicineDashboardStats()`. Helper returns FLAT shape `{ stats: { unread, pendingForms, highRisk, online, followUp }, error }` — destructured and assigned to state. Errors handled via `setError()` + safe `setStats({...zeroes})` fallback.
+
+3. `src/components/haji/telemedicine/conversation-panel.tsx`
+   - Added imports: `createClient` from `@/lib/supabase/client`, `ensureRoom` from `@/lib/supabase/telemedicine`; added type imports `TelemedicineCategory`, `RequestStatus`, `FormField` from `@/lib/telemedicine-types`.
+   - Rewrote `load()` function:
+     * Null-ID validation: silent return (no error toast) if `!jamaahId`.
+     * Load jamaah: `supabase.from("jamaah").select("*").eq("id", jamaahId).maybeSingle()` — maps all 28 snake_case columns → camelCase `JamaahData`. On null, falls back to `jamaahProp`.
+     * Ensure room via `ensureRoom(jamaahId, "doctor")`. On error, warns + clears requests.
+     * Fetch pending requests: `supabase.from("telemedicine_request").select("*").eq("room_id", room.id).eq("status", "PENDING").order("created_at", { ascending: false })`. Maps snake_case → camelCase `TelemedicineRequestData` (id, room_id→roomId, jamaah_id→jamaahId, category, sub_type→subType, title, fields (JSON.parse with try/catch), status, scheduled_for→scheduledFor, submitted_at→submittedAt, response (JSON.parse with try/catch, nullable), skor, hari_ke→hariKe, created_at→createdAt).
+     * Whole function wrapped in try/catch with `console.warn` on error.
+   - Fixed `sendText()`:
+     * Removed debug `console.log` statements.
+     * Added null-ID validation: silent return if `!jamaahId`.
+     * On success: `setInput("")` + `toast.success("Pesan terkirim")`.
+     * On failure (`inserted` null): `toast.error("Gagal mengirim pesan")` (was previously silent — clear input without any feedback).
+
+4. `src/components/haji/telemedicine/simple-action-dialogs.tsx`
+   - Added imports: `createClient` from `@/lib/supabase/client`, `ensureRoom` + `sendChatMessage` from `@/lib/supabase/telemedicine`.
+   - **EdukasiFormDialog.handleSend()**: Replaced 2 fetches with `ensureRoom()` → `supabase.from("telemedicine_request").insert({...}).select().single()` (to get new request ID) → `sendChatMessage(room.id, { type: "EDUKASI", content: title, requestId: newReq.id })` → optional `sendChatMessage(room.id, { type: "TEXT", content: pesan })`. toast.success("Edukasi terkirim") on success.
+   - **ObatFormDialog.handleSend()**: Same pattern with `category: "OBAT"`, `sub_type: "OBAT"`, content = pesan.trim(). toast.success("Instruksi obat terkirim").
+   - **FileSendDialog.handleSend()**: `ensureRoom()` → `sendChatMessage(room.id, { type: fileType, content: caption || "[Label]", attachmentName: "placeholder-...bin" })`. toast.success("${label} terkirim").
+   - All three handlers: try/catch wraps entire flow, `toast.error(e.message)` on any failure.
+
+Verification:
+- `bun run lint` → exit 0 (PASS, no errors, no warnings).
+- grep for `/api/telemedicine` in `src/components/haji/telemedicine/`: confirmed ZERO references remain in the 4 fixed files. Remaining references are in `ai-summary-panel.tsx`, `ttv-form-dialog.tsx`, `smart-monitoring-dialog.tsx`, `skrining-form-dialog.tsx`, `patient-form-fill-dialog.tsx` — all of which hit LIVE backend routes (verified via `find src/app/api/telemedicine -name route.ts`).
+- Dev log (`tail -50 dev.log`) shows no errors after edits — only standard Next.js Ready + initial GET / 200.
+
+Stage Summary:
+- 4 frontend files migrated from broken API fetches → direct Supabase browser client queries:
+  * `src/components/haji/telemedicine/telemedicine-view.tsx` — rooms list + realtime subscription + mark-read
+  * `src/components/haji/telemedicine/telemedicine-dashboard-widget.tsx` — dashboard stats
+  * `src/components/haji/telemedicine/conversation-panel.tsx` — jamaah + pending requests + fixed sendText toast
+  * `src/components/haji/telemedicine/simple-action-dialogs.tsx` — Edukasi/Obat/File dialogs all use ensureRoom + supabase insert + sendChatMessage
+- UI/UX unchanged (same dialogs, same layout, same props, same rendering). Only data-fetching logic was rewritten.
+- All operations wrapped in try/catch with `toast.error()` for user-visible errors and `toast.success()` for confirmations.
+- Defensive null handling: `RoomListItem.jamaah` now nullable; `RoomRow` renders placeholder when jamaah is null; `sendText()` and `load()` return early when `jamaahId` is null without showing an error toast.
+- The corresponding `/api/telemedicine/{rooms,dashboard,rooms/[id]/{read,message}}` routes are now dead code (don't exist on disk anyway — only the `[jamaahId]/{request,smart-monitoring,ai-summary}` and `request/[requestId]/submit` routes exist). No cleanup needed.
+- Realtime: ONE Supabase channel (`chat_room:all`) subscribed via `subscribeToRoomsList()`, debounced 400ms to avoid reload storms. Triggers full `load()` + dashboard refresh on any `chat_room` or `chat_message` change.
+- Lint: PASS (exit 0).
+
+---
+Task ID: STATUS-VIEW-1
+Agent: code-writer
+Task: Create comprehensive Supabase monitoring dashboard view (`src/components/haji/supabase-status-view.tsx`)
+
+Work Log:
+- Read existing hook `src/hooks/use-supabase-health.ts` to understand the `HealthState` shape (15 sub-objects: project, database, auth, realtime, storage, edgeFunctions, api, latency, session, sync, tables, counts, errors, sipulanghaji) + `ConnectionState` (connected/disconnected/connecting/reconnecting) + `HealthLevel` (healthy/warning/error). Hook returns `{ state, refresh }` with auto-refresh every 30s + reconnect-on-disconnect retry logic.
+- Read existing `src/components/haji/supabase-status-badge.tsx` for the project's emerald/rose/amber status-chip color conventions (light: `bg-*-100 text-*-700`, dark: `dark:bg-*-950/60 dark:text-*-300`, matched the same palette throughout this view).
+- Created `src/components/haji/supabase-status-view.tsx` (~810 lines) implementing ALL 15 required panels:
+  1. **ConnectionHero** — gradient banner with ring-2 outline. Color & emoji per `ConnectionState`: 🟢 emerald/teal (connected), 🔴 rose/red (disconnected), 🟡 amber/orange (connecting), 🔵 sky/cyan (reconnecting). Shows project name, last-checked time, animated spinner while checking, translucent SystemStatusBadge overlay, progress bar overlay while checking.
+  2. **SiPulangHajiPanel** — 6 stat cards in `grid-cols-2 sm:grid-cols-3` (Total Jamaah/TTV Today/Skrining Today/Active Chats/Unread/Failed Sync with distinct colored icons) + 3 Row entries (Last Sync / Realtime Chat status pill / Last Backup) + SystemStatusBadge footer.
+  3. **ProjectInfoPanel** — name, ID, URL (mono), region, environment (Badge).
+  4. **DatabasePanel** — StatusBadge(connected) + rows for Connected/Response Time/Last Query/Server Timestamp/Timezone.
+  5. **AuthPanel** — ✅ Auth Running (emerald) / ❌ Auth Error (rose) badge + Running/Error rows.
+  6. **RealtimePanel** — colored status pill (connected=emerald, reconnecting=amber, disconnected=rose) + Active Channels + Health row.
+  7. **StoragePanel** — StatusBadge + Connected/Bucket Count/Error rows + scrollable bucket list (`max-h-40 overflow-y-auto`) with public/private badges.
+  8. **EdgeFunctionPanel** — Active (emerald) / Inactive (outline) badge + Status/Function/Error rows.
+  9. **ApiPanel** — StatusBadge(reachable) + Reachable/HTTP Status/Network Error rows.
+  10. **LatencyPanel** — large color-coded ping value (green<300ms/amber 300-1000ms/rose>1000ms), average (last 10 samples), level badge, custom progress bar with `0ms / 300ms / 1000ms / 2000ms+` markers.
+  11. **SessionPanel** — StatusBadge(active && !expired) + Current User/Active/Expired/Login Time/Last Refresh/Expires At rows.
+  12. **SyncPanel** — Last Sync/Pending/Success (emerald)/Failed (rose) rows.
+  13. **TableHealthPanel** — grid (`grid-cols-1 sm:grid-cols-2`) of 7 tables with ✅ Accessible (emerald bg) / ❌ Error (rose bg) + truncated error text. Header description shows accessible/total count.
+  14. **RecordCountsPanel** — 6 count cards (`grid-cols-2 sm:grid-cols-3`) for Jamaah/Chat/TTV/Skrining/Lab/User with distinct colored icons + `toLocaleString("id-ID")`.
+  15. **ErrorLogPanel** — scrollable table (`max-h-96 overflow-y-auto`) with sticky header, empty state with CheckCircle2, columns Time/Type(badge)/Message(mono).
+
+Implementation details:
+- Imports: `useSupabaseHealth` + type-only imports `HealthState`, `ConnectionState`, `HealthLevel` from `@/hooks/use-supabase-health`.
+- shadcn/ui components used: `Card`, `CardContent`, `CardDescription`, `CardHeader`, `CardTitle`, `Button`, `Badge`, `Progress`, and the full `Table` family (`Table`, `TableBody`, `TableCell`, `TableHead`, `TableHeader`, `TableRow`).
+- lucide-react icons (22): Activity, AlertTriangle, Bell, CheckCircle2, Database, Eye, FileWarning, Globe, HardDrive, Hash, HeartPulse, History, Link2, Loader2, RefreshCw, Server, ShieldCheck, Timer, UserCheck, Users, Wifi, Zap.
+- `cn` imported from `@/lib/utils` for conditional class composition.
+- Helpers implemented:
+  * `fmtTime(iso)` — formats ISO string → `id-ID` locale "dd MMM yyyy, HH:mm:ss", returns "—" for null/invalid.
+  * `Row({ label, value, mono })` — flex key-value row with bottom border (last:border-0), supports monospace value, auto-fallback to "—" for null/empty.
+  * `StatusBadge({ ok, labelOk, labelBad })` — emerald CheckCircle2 / rose AlertTriangle badge.
+  * `SystemStatusBadge({ level, onColor })` — works on both white cards (emerald/amber/rose chips) AND colored gradient hero (translucent white chip with backdrop blur).
+- Header has Refresh button (disabled while `checking`, shows Loader2 spin) + Auto-refresh 30s indicator badge with pulsing dot (amber while checking, emerald while idle).
+- `<Progress value={65} className="h-1" />` shown between header and hero while `state.checking` is true (covers initial load + each manual/auto refresh).
+- Responsive layout: `max-w-7xl mx-auto p-4 sm:p-6`, panels in `grid grid-cols-1 lg:grid-cols-2`, stat/count sub-cards use `grid-cols-2 sm:grid-cols-3` so they fit on narrow mobile.
+- Mobile-friendly: long URLs/IDs use `break-words` + `font-mono text-xs`, table health cells use `truncate` for long error messages, error log table uses `whitespace-normal` for wrapping.
+- Semantic HTML: `<header>`, `<section>` wrappers; `<main>` is provided by the parent app-shell.
+- Accessibility: all icons decorative; titles via `<CardTitle>` + `<CardDescription>` for context; touch targets ≥44px (Button size=sm + stat cards have generous padding).
+
+Verification:
+- `bun run lint` → exit 0 (PASS, no errors, no warnings).
+- Dev log (`tail -30 dev.log`) shows no new errors — standard Next.js Ready + GET / 200 entries only.
+
+Stage Summary:
+- 1 new file created: `src/components/haji/supabase-status-view.tsx` (~810 lines).
+- All 15 required panels implemented as separate small components (`ConnectionHero`, `SiPulangHajiPanel`, `ProjectInfoPanel`, `DatabasePanel`, `AuthPanel`, `RealtimePanel`, `StoragePanel`, `EdgeFunctionPanel`, `ApiPanel`, `LatencyPanel`, `SessionPanel`, `SyncPanel`, `TableHealthPanel`, `RecordCountsPanel`, `ErrorLogPanel`) composed by the single exported `SupabaseStatusView()` function.
+- Reuses the existing `useSupabaseHealth` hook (no DB/network logic duplicated in the view).
+- Color palette: emerald/rose/amber/teal/sky/purple medical theme matching project conventions; NO indigo or blue (uses sky/cyan for the reconnecting state instead).
+- Ready to be rendered from `/` (via app-shell routing) or any other parent view.
+- Lint: PASS (exit 0).
+
+---
+Task ID: TOTAL-FIX-1
+Agent: Orchestrator
+Task: Comprehensive audit + total fix of SiHaji Care (no errors, no 404, no 400, data from Supabase)
+
+Work Log:
+- Analyzed current state: missing Status module, missing Supabase helpers, telemedicine calling non-existent endpoints, API routes using createAdminClient (publishable key, can't bypass RLS)
+
+- Created src/lib/supabase/query-logger.ts: structured logging (logSelect, logInsert, logUpdate, logDelete)
+- Created src/lib/supabase/dashboard.ts: loadDashboardJamaahList + loadDashboardStats (Promise.allSettled, 9 parallel count queries)
+- Created src/lib/supabase/telemedicine.ts: ensureRoom, loadRoomsList, sendChatMessage, markRoomReadByDoctor, loadTelemedicineDashboardStats, subscribeToRoomMessages, subscribeToRoomsList
+- Created src/hooks/use-supabase-health.ts: comprehensive health check hook (connection, DB, auth, realtime, storage, edge, API, latency, session, sync, tables, counts, errors, Si Pulang Haji stats)
+- Created src/components/haji/supabase-status-view.tsx: 15-panel monitoring dashboard (ConnectionHero, SiPulangHaji, ProjectInfo, Database, Auth, Realtime, Storage, EdgeFunction, Api, Latency, Session, Sync, TableHealth, RecordCounts, ErrorLog)
+
+- Updated src/lib/store.ts: added "status" view + goStatus()
+- Updated src/components/haji/app-shell.tsx: added Activity icon, SupabaseStatusView import, "Status Sistem" nav item (both DOCTOR_NAV and JAMAAH_NAV), goStatus in goMaps, renders SupabaseStatusView
+- Updated src/components/haji/supabase-status-badge.tsx: made clickable (navigates to status view), added reconnecting state
+
+- Fixed telemedicine frontend (via subagent TELE-FIX-1):
+  - telemedicine-view.tsx: loadRoomsList() + markRoomReadByDoctor() + subscribeToRoomsList()
+  - telemedicine-dashboard-widget.tsx: loadTelemedicineDashboardStats() (flat shape, fixes crash)
+  - conversation-panel.tsx: direct Supabase queries for jamaah + requests
+  - simple-action-dialogs.tsx: ensureRoom() + sendChatMessage() direct to Supabase
+
+- Fixed dashboard-view.tsx: 
+  - Replaced fetch("/api/jamaah") with loadDashboardJamaahList() + loadDashboardStats()
+  - Uses Promise.allSettled (one query failure doesn't break the other)
+  - Added stats state (total, merah, kuning, hijau, lansia, activeChats, unreadNotifications, monitoringToday)
+  - Added Chat Aktif, Notifikasi, Monitoring Hari Ini stat cards
+  - Added error state display + realtime auto-refresh
+  - Added console.log debug logging
+
+- Fixed ai-view.tsx PerJamaahAI:
+  - Replaced fetch("/api/jamaah/${jamaahId}") with direct Supabase query
+  - Uses Promise.allSettled
+  - Added errorMsg state + defensive null checks for data.analisis
+  - Added console.log debug logging
+
+- CRITICAL FIX: Changed all API routes from createAdminClient() to createClient()
+  - Root cause: createAdminClient() uses SUPABASE_SERVICE_ROLE_KEY which is actually a publishable key (sb_publishable_...), NOT a real service role key
+  - This means createAdminClient() cannot bypass RLS — auth.uid() returns null, is_staff() returns false, all queries return empty
+  - Fix: All 11 API routes + serialize.ts now use `await createClient()` which reads the user's session cookies
+  - This ensures auth.uid() is set correctly and RLS policies allow access
+  - Files changed: ai/cohort, ai/summary/[id], jamaah/route, jamaah/[id]/route, jamaah/[id]/risk, jamaah/[id]/pre-haji, jamaah/[id]/pre-haji/ai, telemedicine/request/[requestId]/submit, telemedicine/rooms/[jamaahId]/ai-summary, telemedicine/rooms/[jamaahId]/request, telemedicine/rooms/[jamaahId]/smart-monitoring, serialize.ts
+
+- Final verification:
+  ✓ ZERO Prisma imports in src/
+  ✓ ZERO isDev/IsDev references
+  ✓ .env + .env.local both have Supabase credentials
+  ✓ ZERO createAdminClient calls in API routes (only in server.ts definition)
+  ✓ ZERO calls to missing endpoints (/api/telemedicine/rooms, /api/telemedicine/dashboard, etc.)
+  ✓ Status Sistem menu restored in sidebar (both doctor + jamaah nav)
+  ✓ Status view + health hook created
+  ✓ Lint passes clean (0 errors)
+  ✓ GET / → 200
+  ✓ GET /api/jamaah → 200
+  ✓ GET /api/ai/cohort → 200
+  ✓ No errors in dev log (no 404, 400, ReferenceError, PrismaClientInitializationError)
+
+Stage Summary:
+- All root causes fixed:
+  1. ✅ "Belum ada data jamaah" → fixed by changing API routes to use createClient() (session-based, RLS works)
+  2. ✅ Dashboard AI kosong → fixed by using Supabase-direct queries + Promise.allSettled
+  3. ✅ Status Supabase hilang → restored (store, hook, view, sidebar, badge)
+  4. ✅ ReferenceError: isDev → already fixed (inlined NODE_ENV check)
+  5. ✅ 404 Not Found → fixed by replacing missing endpoint calls with Supabase-direct queries
+  6. ✅ 400 Bad Request → fixed by restoring env vars
+  7. ✅ /api/telemedicine/rooms calls → replaced with loadRoomsList() from Supabase
+  8. ✅ /api/telemedicine/dashboard calls → replaced with loadTelemedicineDashboardStats()

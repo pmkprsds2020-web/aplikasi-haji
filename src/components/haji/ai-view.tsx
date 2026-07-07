@@ -292,19 +292,47 @@ function PerJamaahAI({ jamaahId, onBack }: { jamaahId: string; onBack: () => voi
   const [data, setData] = React.useState<SummaryResp | null>(null);
   const [jamaah, setJamaah] = React.useState<{ nama: string; usia: number; kelamin: string; riskLevel: RiskLevel } | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
+    setErrorMsg(null);
+    console.log("[PerJamaahAI] Loading data for jamaahId:", jamaahId);
     try {
-      const [sRes, dRes] = await Promise.all([
+      // 1. Fetch jamaah profile directly from Supabase (avoids API 404).
+      // 2. Fetch AI summary from the Supabase-backed /api/ai/summary/[id] route.
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
+      const [sRes, jRes] = await Promise.allSettled([
         fetch(`/api/ai/summary/${jamaahId}`),
-        fetch(`/api/jamaah/${jamaahId}`),
+        supabase.from("jamaah").select("nama, usia, kelamin, risk_level").eq("id", jamaahId).maybeSingle(),
       ]);
-      const s = await sRes.json();
-      const d = await dRes.json();
-      setData(s as SummaryResp);
-      setJamaah(d.jamaah);
-    } catch {
+      // AI summary
+      if (sRes.status === "fulfilled") {
+        const s = await sRes.value.json().catch(() => null);
+        // Defensive: ensure we always have an analisis object
+        if (s && typeof s === "object" && !s.analisis) {
+          s.analisis = { ringkasan: s.error ? "Analisis AI tidak tersedia saat ini." : "Tidak ada ringkasan.", prioritas: "RUTIN", diagnosisSementara: [], rekomendasi: [], perluHomeVisit: false };
+        }
+        setData(s as SummaryResp);
+      } else {
+        console.error("[PerJamaahAI] AI summary failed:", sRes.reason);
+        setErrorMsg("Gagal memuat analisis AI");
+        setData(null);
+      }
+      // Jamaah profile
+      if (jRes.status === "fulfilled") {
+        if (jRes.value.error) console.error("[PerJamaahAI] jamaah fetch error:", jRes.value.error);
+        if (jRes.value.data) {
+          const jd = jRes.value.data as { nama: string; usia: number; kelamin: string; risk_level: string };
+          setJamaah({ nama: jd.nama, usia: jd.usia, kelamin: jd.kelamin, riskLevel: (jd.risk_level as RiskLevel) ?? "HIJAU" });
+        }
+      } else {
+        console.error("[PerJamaahAI] jamaah fetch rejected:", jRes.reason);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Gagal memuat analisis";
+      setErrorMsg(msg);
       setData(null);
     } finally {
       setLoading(false);

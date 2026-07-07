@@ -12,13 +12,19 @@ import { ConversationPanel } from "./conversation-panel";
 import { EmptyState, RiskBadge } from "../shared";
 import { initials, RISK_STYLE } from "@/lib/format";
 import type { JamaahData } from "@/lib/types";
-import type { ChatMessageData } from "@/lib/telemedicine-types";
+import type { ChatMessageData, ChatSenderType, ChatMessageType } from "@/lib/telemedicine-types";
 import { toast } from "sonner";
 import {
   Collapsible, CollapsibleTrigger, CollapsibleContent,
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  loadRoomsList,
+  markRoomReadByDoctor,
+  subscribeToRoomsList,
+  type RoomListItem as SupabaseRoom,
+} from "@/lib/supabase/telemedicine";
 
 interface RoomListItem {
   id: string;
@@ -27,7 +33,7 @@ interface RoomListItem {
   unreadByJamaah: number;
   lastMessageAt: string;
   online?: { doctor: boolean; jamaah: boolean };
-  jamaah: JamaahData;
+  jamaah: JamaahData | null;
   lastMessage?: ChatMessageData;
 }
 
@@ -46,24 +52,89 @@ export function TelemedicineView({ initialJamaahId }: Props) {
   const [dashRefresh, setDashRefresh] = React.useState(0);
   const [activeFilter, setActiveFilter] = React.useState<"unread" | "pending" | "highRisk" | "online" | "followUp" | null>(null);
 
+  // ===== Map Supabase RoomListItem → local RoomListItem =====
+  const mapSupabaseRoom = React.useCallback((r: SupabaseRoom): RoomListItem => {
+    const j = r.jamaah;
+    const lm = r.lastMessage;
+    return {
+      id: r.id,
+      jamaahId: r.jamaahId,
+      unreadByDoctor: r.unreadByDoctor,
+      unreadByJamaah: r.unreadByJamaah,
+      lastMessageAt: r.lastMessageAt,
+      jamaah: j ? {
+        id: j.id,
+        nama: j.nama,
+        nik: j.nik,
+        kloter: j.kloter,
+        porsi: "",
+        usia: j.usia,
+        kelamin: (j.kelamin === "P" ? "P" : "L") as "L" | "P",
+        alamat: "",
+        hp: "",
+        kontakKeluarga: "",
+        tanggalTiba: "",
+        bandara: "",
+        kabupatenKota: "",
+        puskesmas: j.puskesmas,
+        dokterKeluarga: "",
+        riskLevel: (j.riskLevel || "HIJAU") as JamaahData["riskLevel"],
+        riskSummary: j.riskSummary || "",
+        createdAt: r.lastMessageAt,
+        updatedAt: r.lastMessageAt,
+      } : null,
+      lastMessage: lm ? {
+        id: lm.id,
+        roomId: lm.room_id,
+        senderType: lm.sender_type as ChatSenderType,
+        senderName: lm.sender_name,
+        type: lm.type as ChatMessageType,
+        content: lm.content,
+        attachmentUrl: lm.attachment_url,
+        attachmentName: lm.attachment_name,
+        requestId: lm.request_id,
+        readByDoctor: lm.read_by_doctor,
+        readByJamaah: lm.read_by_jamaah,
+        createdAt: lm.created_at,
+      } : undefined,
+    };
+  }, []);
+
   // ===== Load rooms =====
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/telemedicine/rooms", { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { rooms: RoomListItem[] };
-      setRooms(data.rooms ?? []);
+      const { rooms, error } = await loadRoomsList();
+      if (error) throw new Error(error);
+      setRooms(rooms.map(mapSupabaseRoom));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Gagal memuat daftar percakapan");
       setRooms([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [mapSupabaseRoom]);
 
   React.useEffect(() => {
     load();
+  }, [load]);
+
+  // ===== Realtime: Supabase channels (ONE channel, debounced) =====
+  React.useEffect(() => {
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = subscribeToRoomsList({
+      onChange: () => {
+        if (debounce) clearTimeout(debounce);
+        debounce = setTimeout(() => {
+          load();
+          setDashRefresh((k) => k + 1);
+        }, 400);
+      },
+    });
+    return () => {
+      if (debounce) clearTimeout(debounce);
+      unsubscribe();
+    };
   }, [load]);
 
   // ===== Auto-select initial =====
@@ -230,7 +301,9 @@ export function TelemedicineView({ initialJamaahId }: Props) {
                       setSelected(r.jamaahId);
                       // Mark read on open
                       setRooms((prev) => prev.map((x) => x.id === r.id ? { ...x, unreadByDoctor: 0 } : x));
-                      fetch(`/api/telemedicine/rooms/${r.jamaahId}/read`, { method: "POST" }).catch(() => {});
+                      markRoomReadByDoctor(r.id).catch((err) => {
+                        console.warn("[markRoomReadByDoctor] failed:", err);
+                      });
                     }}
                   />
                 ))}
@@ -277,6 +350,36 @@ function RoomRow({
   onClick: () => void;
 }) {
   const j = room.jamaah;
+  // ===== Defensive null check: jamaah may be null if jamaah row was deleted =====
+  if (!j) {
+    return (
+      <li>
+        <button
+          type="button"
+          onClick={onClick}
+          className={cn(
+            "flex w-full items-center gap-3 px-3 py-2.5 text-left transition",
+            active ? "bg-primary/5" : "hover:bg-accent/40"
+          )}
+        >
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-muted-foreground">
+            ?
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-muted-foreground">Jamaah tidak ditemukan</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {room.lastMessage?.content || "Data jamaah tidak tersedia"}
+            </p>
+            {room.unreadByDoctor > 0 && (
+              <span className="mt-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                {room.unreadByDoctor > 99 ? "99+" : room.unreadByDoctor}
+              </span>
+            )}
+          </div>
+        </button>
+      </li>
+    );
+  }
   const s = RISK_STYLE[j.riskLevel];
   const last = room.lastMessage;
   return (

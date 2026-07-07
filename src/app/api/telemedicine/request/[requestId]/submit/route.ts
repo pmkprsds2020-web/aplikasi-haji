@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { recomputeAndSaveRisk } from "@/lib/serialize";
 import { broadcastTelemedicine } from "@/lib/telemedicine-broadcast";
 import {
@@ -209,7 +209,7 @@ export async function POST(
         ? String(body.skor)
         : null;
 
-    const supabase = createAdminClient();
+    const supabase = await createClient();
 
     // Fetch telemedicine_request (never 404 — return 200 fallback)
     const { data: reqRow, error: reqErr } = await supabase

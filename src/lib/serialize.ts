@@ -1,5 +1,5 @@
 import { computeRiskForJamaah } from "./risk";
-import { createAdminClient } from "./supabase/server";
+import { createClient } from "./supabase/server";
 import type { JamaahDetail, JamaahData, ScreeningData, VitalSignData, PascaHajjLabData } from "./types";
 import type {
   PreHajjVitalData,
@@ -120,7 +120,7 @@ export function serializePascaHajjLab(l: {
 // Hitung ulang & simpan riskLevel + riskSummary jamaah (Supabase-direct)
 export async function recomputeAndSaveRisk(jamaahId: string): Promise<void> {
   try {
-    const supabase = createAdminClient();
+    const supabase = await createClient();
     const { data: j } = await supabase
       .from("jamaah")
       .select("*")

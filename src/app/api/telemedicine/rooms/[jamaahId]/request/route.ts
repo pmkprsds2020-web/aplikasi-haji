@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { broadcastTelemedicine } from "@/lib/telemedicine-broadcast";
 import type {
   ChatMessageType,
@@ -147,7 +147,7 @@ export async function POST(
     const hariKe =
       body.hariKe !== undefined && body.hariKe !== null ? Number(body.hariKe) : null;
 
-    const supabase = createAdminClient();
+    const supabase = await createClient();
 
     // Verify jamaah exists
     const { data: jamaah, error: jamaahError } = await supabase

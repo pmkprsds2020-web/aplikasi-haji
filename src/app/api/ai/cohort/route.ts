@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { computeRiskForJamaah } from "@/lib/risk";
 import type {
   JamaahData,
@@ -86,7 +86,7 @@ function mapVital(v: any): VitalSignData {
 // GET /api/ai/cohort — analisis AI seluruh kloter/wilayah kerja Puskesmas
 export async function GET(_req: NextRequest) {
   try {
-    const supabase = createAdminClient();
+    const supabase = await createClient();
 
     // Fetch all jamaah + screenings + vitals in parallel
     const [jRes, scrRes, vitRes] = await Promise.all([

@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   LayoutDashboard, Users, CalendarClock, Sparkles, Moon, Sun,
   HeartPulse, Stethoscope, Loader2, LogOut, UserCircle, ClipboardList,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
@@ -27,6 +28,7 @@ import { JamaahProfil } from "./jamaah-views/jamaah-profil";
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
 import { LoginScreen } from "./login-screen";
 import { SupabaseStatusBadge } from "./supabase-status-badge";
+import { SupabaseStatusView } from "./supabase-status-view";
 
 // ===== Doctor nav =====
 const DOCTOR_NAV: { view: ViewName; label: string; icon: LucideIcon; desc: string }[] = [
@@ -35,6 +37,7 @@ const DOCTOR_NAV: { view: ViewName; label: string; icon: LucideIcon; desc: strin
   { view: "telemedicine", label: "Telemedicine", icon: Stethoscope, desc: "Chat & monitoring" },
   { view: "monitoring", label: "Monitoring", icon: CalendarClock, desc: "Jadwal 1·7·14·30" },
   { view: "ai", label: "Analisis AI", icon: Sparkles, desc: "Rekomendasi AI" },
+  { view: "status", label: "Status Sistem", icon: Activity, desc: "Monitoring Supabase" },
 ];
 
 // ===== Jamaah nav (simplified) =====
@@ -43,11 +46,12 @@ const JAMAAH_NAV: { view: ViewName; label: string; icon: LucideIcon; desc: strin
   { view: "jamaah-riwayat", label: "Riwayat Kesehatan", icon: ClipboardList, desc: "TTV, Lab, Skrining" },
   { view: "jamaah-chat", label: "Telemedicine", icon: Stethoscope, desc: "Chat dokter" },
   { view: "jamaah-profil", label: "Profil Saya", icon: UserCircle, desc: "Data diri" },
+  { view: "status", label: "Status Sistem", icon: Activity, desc: "Monitoring Supabase" },
 ];
 
 export function AppShell() {
   const {
-    view, telemedicineJamaahId, goDashboard, goJamaahDashboard,
+    view, telemedicineJamaahId, goDashboard, goJamaahDashboard, goStatus,
   } = useApp();
   const { user, loading, signOut, role } = useSupabaseAuth();
 
@@ -119,7 +123,12 @@ export function AppShell() {
           </header>
 
           <main className="flex-1 p-4 sm:p-6">
-            {isJamaah ? (
+            {view === "status" ? (
+              // ===== Status view (both roles) =====
+              <div className="mx-auto max-w-6xl">
+                <SupabaseStatusView />
+              </div>
+            ) : isJamaah ? (
               // ===== Jamaah views =====
               <div className="mx-auto max-w-4xl">
                 {view === "jamaah-dashboard" && <JamaahDashboard />}
@@ -179,6 +188,7 @@ function MobileNavBtn({
   const {
     view, goDashboard, goJamaahList, goMonitoring, goAI, goTelemedicine,
     goJamaahDashboard, goJamaahRiwayat, goJamaahChat, goJamaahProfil,
+    goStatus,
   } = useApp();
   const meta = nav.find((n) => n.view === target)!;
   const active = view === target;
@@ -193,6 +203,7 @@ function MobileNavBtn({
     "jamaah-riwayat": () => goJamaahRiwayat(),
     "jamaah-chat": goJamaahChat,
     "jamaah-profil": goJamaahProfil,
+    status: goStatus,
   };
 
   const go = goMap[target];
@@ -221,6 +232,7 @@ function SidebarContent({
   const {
     view, goDashboard, goJamaahList, goMonitoring, goAI, goTelemedicine,
     goJamaahDashboard, goJamaahRiwayat, goJamaahChat, goJamaahProfil,
+    goStatus,
   } = useApp();
 
   const goMap: Partial<Record<ViewName, () => void>> = {
@@ -233,6 +245,7 @@ function SidebarContent({
     "jamaah-riwayat": () => goJamaahRiwayat(),
     "jamaah-chat": goJamaahChat,
     "jamaah-profil": goJamaahProfil,
+    status: goStatus,
   };
 
   return (

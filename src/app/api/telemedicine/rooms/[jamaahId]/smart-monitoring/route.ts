@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { broadcastTelemedicine } from "@/lib/telemedicine-broadcast";
 import {
   SMART_MONITORING_PHASES,
@@ -152,7 +152,7 @@ export async function POST(
       return NextResponse.json({ error: "Fase tidak dikenal" }, { status: 400 });
     }
 
-    const supabase = createAdminClient();
+    const supabase = await createClient();
 
     // Verify jamaah exists (never 404 — return 200 with safe fallback)
     const { data: jamaah, error: jamaahError } = await supabase

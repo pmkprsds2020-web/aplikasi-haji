@@ -10,6 +10,7 @@ export type ViewName =
   | "monitoring"       // doctor: monitoring schedule
   | "ai"               // doctor: AI analysis
   | "telemedicine"     // doctor: telemedicine chat list
+  | "status"           // doctor/jamaah: Supabase status monitoring dashboard
   // Jamaah views
   | "jamaah-dashboard" // jamaah: simplified dashboard
   | "jamaah-riwayat"   // jamaah: riwayat kesehatan (read-only)
@@ -34,6 +35,7 @@ interface AppState {
   goMonitoring: () => void;
   goAI: () => void;
   goTelemedicine: (jamaahId?: string) => void;
+  goStatus: () => void;
   // Jamaah navigation
   goJamaahDashboard: () => void;
   goJamaahRiwayat: (tab?: string) => void;
@@ -63,6 +65,7 @@ export const useApp = create<AppState>((set) => ({
   goAI: () => set({ view: "ai" }),
   goTelemedicine: (jamaahId) =>
     set({ view: "telemedicine", telemedicineJamaahId: jamaahId ?? null }),
+  goStatus: () => set({ view: "status" }),
   // Jamaah
   goJamaahDashboard: () => set({ view: "jamaah-dashboard" }),
   goJamaahRiwayat: (tab) => set({ view: "jamaah-riwayat", pascaTab: tab ?? "ringkasan" }),
