@@ -1,31 +1,42 @@
 -- ============================================================================
--- Fix profiles table: drop old role CHECK constraint, add 'dokter' role
--- Ensure email column exists on profiles.
--- Ensure jamaah table does NOT need an email column (email lives in profiles).
+-- Fix profiles table: drop old role CHECK constraint, migrate roles, add new constraint
+-- Fix jamaah table: add email column for auth linking
+-- ============================================================================
+-- Run this in the Supabase SQL Editor.
+-- IMPORTANT: The order matters — migrate data BEFORE adding the new constraint.
 -- ============================================================================
 
--- 1. Drop the old CHECK constraint on profiles.role
--- The old constraint only allowed: super_admin, admin, kepala_klinik, pj_mutu, petugas, viewer, jamaah
--- We need to allow 'dokter' as well.
+-- ===== Step 1: Drop ALL existing CHECK constraints on profiles.role =====
+-- Drop the old constraint first so we can migrate data freely.
 ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
 ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_role_check1;
 ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_role_check2;
+ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_role_check3;
 
--- 2. Add new CHECK constraint allowing only 'dokter' and 'jamaah'
+-- ===== Step 2: Migrate old roles to new two-role system (BEFORE adding constraint) =====
+-- Map all old staff roles to 'dokter'
+UPDATE public.profiles SET role = 'dokter' WHERE role IN ('super_admin', 'admin', 'kepala_klinik', 'pj_mutu', 'petugas', 'viewer', 'operator');
+-- Map any remaining non-standard roles to 'jamaah'
+UPDATE public.profiles SET role = 'jamaah' WHERE role NOT IN ('dokter', 'jamaah') OR role IS NULL;
+-- Set default for any NULL roles
+UPDATE public.profiles SET role = 'jamaah' WHERE role IS NULL;
+
+-- ===== Step 3: Now add the new CHECK constraint (data is clean) =====
 ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check
   CHECK (role IN ('dokter', 'jamaah'));
 
--- 3. Migrate old roles to new roles
-UPDATE public.profiles SET role = 'dokter' WHERE role IN ('super_admin', 'admin', 'kepala_klinik', 'pj_mutu', 'petugas', 'viewer', 'operator');
-UPDATE public.profiles SET role = 'jamaah' WHERE role NOT IN ('dokter', 'jamaah');
-
--- 4. Ensure profiles has email column (it should from the original schema)
+-- ===== Step 4: Ensure profiles has email and full_name columns =====
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email text;
-
--- 5. Ensure profiles has full_name column (it should from the original schema)
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS full_name text;
 
--- 6. Update the handle_new_user trigger to use new roles
+-- ===== Step 5: Add email column to jamaah table (for auth linking) =====
+ALTER TABLE public.jamaah ADD COLUMN IF NOT EXISTS email text;
+CREATE INDEX IF NOT EXISTS idx_jamaah_email ON public.jamaah(email);
+
+-- ===== Step 6: Ensure jamaah.user_id index exists =====
+CREATE INDEX IF NOT EXISTS idx_jamaah_user_id ON public.jamaah(user_id);
+
+-- ===== Step 7: Update handle_new_user trigger =====
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -45,18 +56,7 @@ BEGIN
 END;
 $$;
 
--- 7. Add email column to jamaah table (for linking with auth at signup time)
--- This is the cleanest approach: dokter stores email when creating jamaah,
--- and when jamaah registers, we match by email and set user_id.
-ALTER TABLE public.jamaah ADD COLUMN IF NOT EXISTS email text;
-
--- 8. Create index on jamaah.email for fast lookup during signup
-CREATE INDEX IF NOT EXISTS idx_jamaah_email ON public.jamaah(email);
-
--- 9. Ensure jamaah.user_id index exists (for fast lookup by auth.uid())
-CREATE INDEX IF NOT EXISTS idx_jamaah_user_id ON public.jamaah(user_id);
-
--- 9. Update the RLS helper functions for the new two-role system
+-- ===== Step 8: Update RLS helper functions =====
 CREATE OR REPLACE FUNCTION public.is_dokter()
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -79,12 +79,10 @@ AS $$
   SELECT id::text FROM public.jamaah WHERE user_id = auth.uid() LIMIT 1;
 $$;
 
--- 10. Verify
-SELECT 'profiles columns:' as info;
-SELECT column_name, data_type FROM information_schema.columns
-  WHERE table_name = 'profiles' AND column_name IN ('id', 'email', 'role', 'full_name')
-  ORDER BY column_name;
+-- ===== Step 9: Verify =====
+SELECT 'profiles role distribution:' as info;
+SELECT role, count(*) FROM public.profiles GROUP BY role;
 
-SELECT 'jamaah columns (should NOT have email):' as info;
+SELECT 'jamaah email column:' as info;
 SELECT column_name FROM information_schema.columns
   WHERE table_name = 'jamaah' AND column_name = 'email';
