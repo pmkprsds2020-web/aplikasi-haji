@@ -90,6 +90,27 @@ export function JamaahFormDialog({ open, onOpenChange, onSaved, initial }: Props
       }
       console.log("Supabase Response:", resData);
       console.log("Supabase Error:", error);
+
+      // If the error is about 'email' column not existing (PGRST204),
+      // retry without the email field — the column hasn't been added to Supabase yet.
+      if (error && (error as { code?: string }).code === "PGRST204") {
+        const errCode = (error as { code?: string }).code;
+        const errMsg = (error as { message?: string }).message ?? "";
+        if (errMsg.includes("email")) {
+          console.warn("[JamaahForm] 'email' column not found — retrying without email field. Run supabase/ADD-EMAIL-COLUMN.sql to add it.");
+          const payloadWithoutEmail = { ...payload };
+          delete (payloadWithoutEmail as Record<string, unknown>).email;
+          if (isEdit && initial) {
+            const r2 = await supabase.from("jamaah").update(payloadWithoutEmail).eq("id", initial.id).select("*").single();
+            resData = r2.data; error = r2.error;
+          } else {
+            const r2 = await supabase.from("jamaah").insert(payloadWithoutEmail).select("*").single();
+            resData = r2.data; error = r2.error;
+          }
+          console.log("[JamaahForm] Retry response:", resData, "error:", error);
+        }
+      }
+
       if (error) {
         console.error("[JamaahForm] save failed:", error);
         const errMsg = (error as { message?: string }).message ?? String(error);
