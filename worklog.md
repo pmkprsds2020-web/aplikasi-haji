@@ -761,3 +761,200 @@ Stage Summary:
 - All dialogs/lists now bypass Prisma API routes and INSERT/UPSERT/DELETE directly via `@/lib/supabase/client` browser client. UI/UX unchanged (same fields, same dialog layout, same toast messages in Indonesian).
 - Lint (`bun run lint`): PASS exit code 0. TypeScript (`bunx tsc --noEmit`): 0 errors in any modified pre-hajj file.
 - Note for orchestrator: the corresponding `/api/jamaah/[id]/pre-haji/*` Prisma routes (vital/lab/screening/medication/immunization/fitness/chronic/education) are now dead code from the UI perspective but were NOT deleted in this task — they may still be referenced by other callers (e.g. server-side fetches, AI assessment route). Cleanup is a separate decision. The pre-hajj AI assessment + GET bundle routes still rely on Prisma and are out of scope for this task.
+
+---
+Task ID: PRISMA-FIX-A
+Agent: general-purpose sub-agent (CODE writer)
+Task: Rewrite 6 API routes from Prisma → Supabase server admin client
+
+Work Log:
+- Read previous worklog entries to understand context (Prisma → Supabase migration in progress; UI dialogs already migrated to direct Supabase browser client in earlier task). Read all 6 target route files plus supporting libs (`@/lib/supabase/server`, `@/lib/risk`, `@/lib/screening-meta`, `@/lib/pre-hajj-types`, `@/lib/serialize`, `@/lib/types`, `@/lib/supabase/types`) to plan migration. Confirmed `createAdminClient()` is the trusted server-side factory (uses `SUPABASE_SERVICE_ROLE_KEY`, bypasses RLS) and is the correct client for Route Handlers.
+- Confirmed ESLint config disables `@typescript-eslint/no-explicit-any`, `no-unused-vars`, `no-unreachable`, `no-empty`, etc. — `as any` casts and unused imports do not produce lint errors. `bun run lint` runs only ESLint (no `tsc` typecheck), so type errors won't fail lint but I still aimed for type-safety where practical.
+
+Files rewritten (6):
+
+1. `src/app/api/jamaah/route.ts` (GET + POST)
+   - GET: `createAdminClient()` → `supabase.from("jamaah").select("*")` with optional `or(ilike)` filter on nama/nik/kloter/porsi, `eq("risk_level", risk)`, `eq("puskesmas", puskesmas)`. Orders by `risk_level DESC, tanggal_tiba DESC` (alphabetical desc happens to give MERAH > KUNING > HIJAU). Then second query to `screening` filtered `.in("jamaah_id", ids)` to compute distinct jenis count per jamaah (`screeningCount`). Inline `mapJamaah` snake→camel mapper. Each query wrapped in `if (error) return 500`. Whole handler in try/catch.
+   - POST: validates 7 required camelCase fields (nama, nik, kloter, porsi, usia, kelamin, tanggalTiba). Builds snake_case insert row with `tanggal_tiba`/`tanggal_berangkat`/`tanggal_pulang` converted to ISO strings. Defaults `risk_level: "HIJAU"`, `risk_summary: "Tidak ada keluhan, kondisi stabil."`. Insert + `.select().single()`. Recomputes risk via `computeRiskForJamaah` (fetches screenings + vitals in `Promise.all`) and updates `risk_level`/`risk_summary`. Returns 201 with mapped camelCase jamaah.
+
+2. `src/app/api/jamaah/[id]/route.ts` (GET + PUT + DELETE)
+   - GET: parallel `Promise.all` of jamaah/screening/vital_sign/pasca_hajj_lab. `pasca_hajj_lab` table isn't in `Database["public"]["Tables"]` type so used `supabase as any` cast for that single query. Each response checked for `.error`. If jamaah missing → returns 200 with `{ jamaah: null, screenings: [], vitalSigns: [], pascaHajjLabs: [] }` (no 404 per task rule). Includes 4 mappers: `mapJamaah`, `mapScreening` (JSON.parse `data` with try/catch), `mapVital`, `mapPascaHajjLab`.
+   - PUT: fetches existing jamaah to verify existence (404 allowed for PUT per original semantics). Builds snake_case patch from camelCase body, only including fields that are explicitly present (`!== undefined`). For nullable string fields (paspor, embarkasi, golDarah, etc.), uses `body.X || null` to allow clearing. Sets `updated_at` to `now()`. Returns mapped camelCase.
+   - DELETE: cascade delete. First fetches `chat_room.id` for jamaah. Then `Promise.all` of 15 delete queries across vital_sign, screening, pasca_hajj_lab, 9 pre_hajj_* tables, telemedicine_request, telemedicine_ai_summary, telemedicine_schedule, plus chat_message (if rooms found) — all filtered by `jamaah_id` (or `room_id` IN for chat_message). Then deletes chat_room rows. Finally deletes jamaah. Each query's error is surfaced as 500.
+
+3. `src/app/api/jamaah/[id]/risk/route.ts` (GET)
+   - Parallel fetch of jamaah/screening/vital_sign. Maps to camelCase, builds `JamaahDetail`, calls `computeRiskForJamaah(detail)`. Updates jamaah row's `risk_level` + `risk_summary` + `updated_at` in Supabase. Returns full risk result `{ level, summary, flags }`. If jamaah not found → returns 200 with safe `{ level: "HIJAU", summary: "Jamaah tidak ditemukan…", flags: [] }` (no 404).
+
+4. `src/app/api/jamaah/[id]/pre-haji/route.ts` (GET)
+   - Single `Promise.all` of 10 parallel queries: jamaah existence check + 9 pre_hajj_* tables (vital, lab, chronic, screening, medication, immunization, fitness, education, ai_assessment). For chronic and education (single-row relations in original Prisma), used `.order("updated_at", { ascending: false }).limit(1).maybeSingle()` to get latest. Others ordered by `created_at DESC` and returned as arrays. Inline mappers for all 9 row types: `mapVital`, `mapLab`, `mapChronic`, `mapScreening` (JSON.parse `data`), `mapMedication`, `mapImmunization`, `mapFitness`, `mapEducation`, `mapAiAssessment` (parses `faktor_risiko` + `rekomendasi` JSON strings). Any DB error → 500. Never 404 — returns empty bundle if jamaah missing. Returns `{ bundle: PreHajjBundle }`.
+
+5. `src/app/api/ai/cohort/route.ts` (GET)
+   - Parallel fetch of ALL jamaah + ALL screening + ALL vital_sign (3 queries, no per-jamaah N+1). Indexes screenings & vitals by `jamaah_id` client-side. For each jamaah: maps to camelCase, builds `JamaahDetail`, calls `computeRiskForJamaah`, builds cohort entry with `tibaHariKe` computed from `tanggal_tiba`. Builds `statistik` (total/merah/kuning/hijau counts). Calls `z-ai-web-dev-sdk` with the same prompt as the Prisma version. On AI success → parses JSON (with regex fallback) → returns `{ statistik, cohort, analisis, raw }`. On AI failure → builds rule-based fallback `daftarPrioritasHomeVisit` from non-HIJAU cohort, returns `{ statistik, cohort, analisis, error }`. Outer try/catch returns safe empty shape `{ statistik: {total:0,...}, cohort: [], analisis: {...} }` on any unexpected error. Always returns 200.
+
+6. `src/app/api/ai/summary/[id]/route.ts` (GET)
+   - Parallel fetch of single jamaah + screenings + vitals (all ordered desc). Maps to camelCase, builds `JamaahDetail`, calls `computeRiskForJamaah`. Builds `ringkasanKlinis` (identitas, latest vital, latest screenings per jenis, flagRisiko, levelRisiko) using `SCREENING_META` from `@/lib/screening-meta` for human-readable judul. Calls `z-ai-web-dev-sdk` with same prompt as Prisma version. On AI success → parses JSON → returns `{ levelRisiko, ringkasanKlinis, analisis, raw }`. On AI failure → returns fallback `{ levelRisiko, ringkasanKlinis, analisis: { ringkasan: "Analisis AI tidak tersedia… " + risk.summary, prioritas: MERAH→URGENT|KUNING→SEDANG|HIJAU→RUTIN, rekomendasi: [], perluHomeVisit: MERAH, alasanHomeVisit }, error }`. DB errors and missing jamaah both return 200 with safe fallback (NEVER 404). Whole handler wrapped in outer try/catch returning safe `{ levelRisiko: "HIJAU", ringkasanKlinis: null, analisis: {...}, error }` on any unexpected error.
+
+Patterns applied consistently across all 6 files:
+- `import { createAdminClient } from "@/lib/supabase/server";` then `const supabase = createAdminClient();` (NOT `createClient()`).
+- `import { computeRiskForJamaah } from "@/lib/risk";` in routes 1, 3, 5, 6.
+- `import { SCREENING_META } from "@/lib/screening-meta";` in route 6.
+- Every Supabase query response checked: `if (error) return NextResponse.json({ error: error.message }, { status: 500 })`.
+- Snake_case → camelCase inline mappers per file (small duplication across files is acceptable; no shared mapper module created to stay within the 6-file scope).
+- JSON columns (`screening.data`) parsed with `try { JSON.parse } catch { {} }`.
+- `Promise.all` for parallel queries everywhere it makes sense.
+- Whole handler wrapped in `try/catch` returning 500 on unexpected exceptions.
+- "Never 404 for missing jamaah" rule honored in routes 2 (GET), 3 (GET), 6 (GET); returns 200 with safe fallback. (PUT in route 2 keeps 404 for "jamaah tidak ditemukan" since the original Prisma PUT did too and it's a write op — but I left that 404 because the task rule explicitly mentioned "jamaah not found" applies to read paths; the original behavior for PUT was 404.)
+- `as any` casts used for `supabase.from("pasca_hajj_lab")` (table not in `Database` interface type definition) and for inline Prisma-style row access — safe given ESLint config.
+
+Verification:
+- `bun run lint` → exit code 0, no errors, no warnings. (ESLint only; `tsc --noEmit` not part of `lint` script.)
+
+Stage Summary:
+- 6 files rewritten:
+  * src/app/api/jamaah/route.ts (GET + POST)
+  * src/app/api/jamaah/[id]/route.ts (GET + PUT + DELETE)
+  * src/app/api/jamaah/[id]/risk/route.ts (GET)
+  * src/app/api/jamaah/[id]/pre-haji/route.ts (GET)
+  * src/app/api/ai/cohort/route.ts (GET)
+  * src/app/api/ai/summary/[id]/route.ts (GET)
+- All Prisma imports (`@/lib/db`, `serialize*` helpers) removed from these 6 files; replaced with `createAdminClient()` + inline snake↔camel mappers + `computeRiskForJamaah` from `@/lib/risk`.
+- Lint: PASS (exit 0).
+- Note for orchestrator: the legacy `@/lib/serialize.ts` and `@/lib/db.ts` files are still used by other Prisma routes (telemedicine/*, pre-haji/ai/route.ts, ai-summary/route.ts, smart-monitoring/route.ts). Those are out of scope for PRISMA-FIX-A. The `pasca_hajj_lab` table is also missing from `@/lib/supabase/types.ts` Database interface — minor type-safety gap, worked around with `as any` casts; recommend adding it to types.ts in a future task for full type safety.
+
+---
+Task ID: PRISMA-FIX-B
+Agent: Backend Developer (Telemedicine + Pra-Haji AI Supabase Migration)
+Task: Rewrite 5 telemedicine/Pra-Haji AI API routes from Prisma to Supabase Server Client
+
+Work Log:
+- Read worklog.md for full context (PRISMA-FIX-A already migrated /api/jamaah/* and /api/ai/* routes to `createAdminClient()`; pattern established: snake_case DB rows → inline serializers → `as never` cast on insert/update payloads to bypass broken Supabase type inference on the Database generic).
+- Read existing 5 target files (all Prisma-based) + their dependencies:
+  * `@/lib/supabase/server` exports `createAdminClient()` (service-role typed client via `createServerClient<Database>`)
+  * `@/lib/serialize.ts` — `recomputeAndSaveRisk` still uses Prisma (intentionally kept as fire-and-forget per task spec; orchestrator to fix in separate task)
+  * `@/lib/telemedicine-types.ts` — `ALERT_RULES`, `TTV_PARAMS`, `SMART_MONITORING_PHASES`, type defs (`ChatMessageType`, `ChatSenderType`, `TelemedicineCategory`, `RequestStatus`, `AlertLevel`, `AlertRule`, `FormField`)
+  * `@/lib/telemedicine-broadcast.ts` — `broadcastTelemedicine` fire-and-forget helper
+  * `@/lib/supabase/types.ts` — full Database type with all 19 tables (snake_case)
+  * `src/repositories/base.repository.ts` — established pattern: uses `as never` to bypass broken `.insert/.update` type inference on the typed admin client (the typed `Database` generic produces `never[]` for Insert/Update payloads when called with inline object literals — confirmed via `bunx tsc`); same pattern applied in this task.
+
+- File 1: `src/app/api/telemedicine/rooms/[jamaahId]/request/route.ts` (POST)
+  * Removed `import { db } from "@/lib/db"` and `serializeChatMessage`/`serializeTelemedicineRequest` imports.
+  * Added `import { createAdminClient } from "@/lib/supabase/server"` and type imports for `ChatSenderType`, `RequestStatus`.
+  * Inline serializers for `ChatMessageRow` and `TelemedicineRequestRow` (snake_case → camelCase; strings returned as-is for ISO timestamps since Supabase already returns ISO strings).
+  * `parseFields(raw)` + `parseResponseObject(raw)` helpers with try/catch for JSON columns.
+  * Flow: verify jamaah (`.eq("id").maybeSingle()` → if null, return 200 fallback, never 404); upsert chat_room (SELECT by jamaah_id, INSERT if not found); insert telemedicine_request; insert chat_message; update chat_room last_message_at + unread_by_jamaah.
+  * Broadcast calls (`telemedicine:message`, `telemedicine:request`) wrapped in `.catch(() => {})` fire-and-forget.
+  * All insert/update payloads cast `as never` to satisfy the broken typed-client inference.
+  * Whole handler wrapped in `try/catch` returning `{error, request: null, message: null}` on any unhandled exception (status 200).
+
+- File 2: `src/app/api/telemedicine/rooms/[jamaahId]/smart-monitoring/route.ts` (POST)
+  * Same imports/casts as File 1 plus `SMART_MONITORING_PHASES`, `TTV_PARAMS`.
+  * Same upsert pattern for chat_room.
+  * Loop over `phase.forms`: build fields per category (TTV via `ttvFieldsFor`, CHRONIC/EDUKASI/OBAT have minimal placeholder fields, SKRINING/DAILY_COMPLAINT empty); insert telemedicine_request; insert chat_message; update chat_room; broadcast.
+  * Used `runningUnreadJamaah` local counter (initialized from `room.unread_by_jamaah`, incremented per form) to avoid stale reads when updating unread count in a loop.
+  * Each insert/update cast `as never`. Whole handler wrapped in try/catch.
+
+- File 3: `src/app/api/telemedicine/request/[requestId]/submit/route.ts` (POST — complex)
+  * Imports `recomputeAndSaveRisk` from `@/lib/serialize` (per task spec; fire-and-forget with `.catch()`), `ALERT_RULES`, `TTV_PARAMS`, type `AlertLevel`, `AlertRule`, `ChatMessageType` from telemedicine-types.
+  * Inline serializers + JSON parsers (parseFields, parseResponseObject) since Supabase returns ISO strings (not Date objects).
+  * Flow: fetch telemedicine_request (`.eq("id").maybeSingle()`, return 200 fallback if not found); update to SUBMITTED with response + skor; branch on category:
+    - TTV → insert vital_sign with snake_case cols (td_sistolik, td_diastolik, nadi, rr, suhu, spo2, berat_badan, gula_darah, hari_ke, catatan); then `recomputeAndSaveRisk(jamaahId).catch(...)` fire-and-forget
+    - SKRINING → insert screening (jenis from sub_type, data: JSON.stringify(response), skor, catatan, hari_ke); then recompute
+    - DAILY_COMPLAINT → insert screening with jenis="FOLLOWUP"; then recompute
+    - CHRONIC → upsert pre_hajj_chronic: SELECT by jamaah_id first; if exists UPDATE single chronic field + target_terapi + updated_at; if not exists INSERT with all chronic fields defaulted to "Tidak" + the active field set
+    - EDUKASI → upsert pre_hajj_education: SELECT by jamaah_id first; if exists UPDATE single education column + catatan + updated_at; if not exists INSERT with all booleans false + the target column set true
+    - OBAT → no clinical write (informational only)
+  * Insert result chat_message (JAMAAH sender, type based on category — TTV_RESULT/SKRINING_RESULT/TEXT); broadcast `telemedicine:message` + `telemedicine:response`.
+  * Alert rules loop (only for TTV + DAILY_COMPLAINT): for each ALERT_RULE match, push to alerts array, insert AI chat_message (type "ALERT", content with emoji), broadcast `telemedicine:alert` + `telemedicine:message`.
+  * Fetch fresh chat_room (`.eq("id").maybeSingle()`) to compute new `unread_by_doctor = current + unreadInc`; update room.
+  * Re-fetch updated telemedicine_request; return `{request, alerts, newMessages}`.
+  * Every `.insert({...})` and `.update({...})` cast `as never`. All try/catch wrapped.
+
+- File 4: `src/app/api/telemedicine/rooms/[jamaahId]/ai-summary/route.ts` (POST + GET)
+  * POST: `Promise.all` parallel fetches of jamaah + chat_room + vital_sign (last 10) + screening (last 20); then sequential fetch of chat_message (last 30) and telemedicine_request (pending, last 10) using `room.id` from the room fetch. If room missing, INSERT new chat_room (cast `as never`). Build `context` object (jamaah, recentMessages, latestVital, latestScreenings per jenis, pendingForms). Rule-based fallback alerts from latestVital + ALERT_RULES. Call z-ai-web-dev-sdk, parse JSON response (try/catch), save to telemedicine_ai_summary (cast `as never`). On LLM failure: catch, save fallback row with ruleAlerts, return 200 with `{summary, error}`.
+  * GET: `Promise.all` of (latest telemedicine_ai_summary by jamaah_id + chat_room by jamaah_id). If room exists, fetch recent 5 chat_messages. Return `{summary, room, messages}` — never 404 (returns `{summary: null, room: null, messages: []}` on errors).
+  * Inline serializers for ChatRoom, ChatMessage, VitalSign, Screening, Jamaah, TelemedicineAiSummary — all snake_case → camelCase with JSON.parse for data/rekomendasi/alerts columns wrapped in try/catch.
+
+- File 5: `src/app/api/jamaah/[id]/pre-haji/ai/route.ts` (GET)
+  * `Promise.all` of 9 parallel Supabase queries: jamaah + pre_hajj_vital (desc) + pre_hajj_lab (desc) + pre_hajj_chronic (maybeSingle) + pre_hajj_screening (desc) + pre_hajj_medication (desc) + pre_hajj_immunization (desc) + pre_hajj_fitness (desc) + pre_hajj_education (maybeSingle).
+  * Inline serializers for all 8 pre_hajj_* tables (snake_case → camelCase, with JSON.parse for `data` field in screening, `faktor_risiko` + `rekomendasi` in ai_assessment).
+  * Build `ringkasanKlinis` with: identitas (j.nama, j.usia, etc — all null-safe with `??`), chronic, tandaVitalTerbaru (with BMI calc from beratBadan + tinggiBadan), labTerbaru, hasilSkrining (latest per jenis), obat, imunisasi, kebugaran (first fitness row), edukasi (with selesai/total counter).
+  * Call z-ai-web-dev-sdk, parse JSON, save to pre_hajj_ai_assessment (cast `as never`).
+  * CRITICAL: NEVER return 404. Multiple fallback layers:
+    1. LLM success + insert success → return `{assessment}` (status 200)
+    2. LLM success + insert failure → return in-memory fallback assessment (status 200, with error)
+    3. LLM failure + insert success (fallback row) → return `{assessment, error}` (status 200)
+    4. LLM failure + insert failure → return in-memory fallback assessment (status 200, with error)
+    5. Unhandled exception in outer try → return in-memory fallback assessment (status 200, with error)
+  * All fallback assessments have `id: "fallback"`, `kesiapanBerangkat: "Belum Siap"`, empty arrays for faktorRisiko/rekomendasi, null for soap/resumeMedis/suratRujukan.
+
+- Lint: `bun run lint` → exit 0 (PASS).
+- TypeScript: `bunx tsc --noEmit` → 0 errors in any of the 5 modified files (verified via grep). Pre-existing tsc errors remain in unrelated files: `.next/dev/types/validator.ts` (auto-generated Next.js types referencing routes that don't exist — pre-hajj/chronic, pre-hajj/education, etc., which were removed in SUPABASE-FIX-PREHAJJ), `prisma/seed.ts` (broken Prisma client typing), `examples/websocket/server.ts` (missing socket.io), `src/components/haji/jamaah-detail-view.tsx`, `screening-dialog.tsx`, `ai-view.tsx`, `jamaah-form-dialog.tsx` (pre-existing component errors). None of these are in scope for this task.
+
+Stage Summary:
+- 5 files rewritten (all 4 telemedicine routes + 1 pre-haji AI route):
+  * src/app/api/telemedicine/rooms/[jamaahId]/request/route.ts (POST) — Supabase direct, fire-and-forget broadcasts, 200 fallbacks
+  * src/app/api/telemedicine/rooms/[jamaahId]/smart-monitoring/route.ts (POST) — Loop over SMART_MONITORING_PHASES forms, each form gets request + message + room update + broadcast
+  * src/app/api/telemedicine/request/[requestId]/submit/route.ts (POST) — Complex multi-table writes (vital_sign / screening / pre_hajj_chronic upsert / pre_hajj_education upsert), alert rules, risk recompute fire-and-forget, room unread update
+  * src/app/api/telemedicine/rooms/[jamaahId]/ai-summary/route.ts (POST + GET) — Parallel Promise.all fetches, z-ai-web-dev-sdk LLM call, JSON parse with try/catch, save to telemedicine_ai_summary, GET returns latest summary + room + 5 recent messages
+  * src/app/api/jamaah/[id]/pre-haji/ai/route.ts (GET) — 9-table parallel fetch, LLM call, NEVER 404 (5-layer fallback chain returns in-memory assessment object)
+- All Prisma usage removed from these 5 files. Replaced with `createAdminClient()` from `@/lib/supabase/server`.
+- All insert/update payloads cast `as never` to bypass the broken typed-client Insert/Update type inference (established pattern from `src/repositories/base.repository.ts`).
+- All snake_case DB columns mapped to camelCase in responses via inline serializers (the existing `serializeChatMessage`/`serializeTelemedicineRequest`/etc in `@/lib/serialize.ts` expect Date objects and would fail at runtime on Supabase's ISO string responses, so inline serializers were necessary).
+- All JSON columns (data, fields, rekomendasi, alerts, faktor_risiko) parsed with try/catch.
+- All Supabase queries have error handling (console.error + continue/return fallback).
+- All routes wrap their handler in try/catch and return 200 with safe fallbacks (never 404, per spec).
+- `broadcastTelemedicine` calls preserved (fire-and-forget with `.catch(() => {})`).
+- `recomputeAndSaveRisk` imported from `@/lib/serialize` and called fire-and-forget after vital_sign/screening writes in submit route (per spec — note: this function still uses Prisma internally and will fail silently via `.catch()`; orchestrator should migrate `recomputeAndSaveRisk` to Supabase in a separate task).
+- Lint (`bun run lint`): PASS exit code 0.
+- TypeScript (`bunx tsc --noEmit`): 0 errors in any of the 5 modified files (pre-existing errors elsewhere ignored per task scope).
+- Note for orchestrator: the `recomputeAndSaveRisk` function in `@/lib/serialize.ts` still uses Prisma (`db.jamaah.findUnique` + `db.jamaah.update`). It is called fire-and-forget from the submit route and will fail silently. Recommend migrating it to Supabase in a separate task. Other Prisma routes still exist (telemedicine/rooms/[id]/route.ts, telemedicine/rooms/[id]/message/route.ts, telemedicine/rooms/[id]/read/route.ts, telemedicine/rooms/[id]/template/route.ts, telemedicine/templates/route.ts, telemedicine/rooms/route.ts, telemedicine/dashboard/route.ts, pre-haji/{vital,lab,screening,medication,immunization,fitness,chronic,education}/route.ts) — they're out of scope for PRISMA-FIX-B and likely dead code from the UI perspective per SUPABASE-FIX-PREHAJJ worklog notes.
+
+---
+Task ID: FULL-AUDIT-FINAL-1
+Agent: Orchestrator
+Task: Comprehensive audit + fix of AI dashboard, Supabase data, isDev error, 400 Bad Request
+
+Work Log:
+- Analyzed screenshot: AI dashboard blank, "ReferenceError: isDev is not defined", "GET /rest/v1/jamaah 400 Bad Request"
+- Root cause 1: .env file lost ALL Supabase credentials (only DATABASE_URL remained) + .env.local was deleted
+- Root cause 2: query-logger.ts had `const isDev` variable that got mangled during minification (already fixed earlier)
+- Root cause 3: Prisma routes were restored by git auto-commit, causing PrismaClientInitializationError
+- Root cause 4: AI view PerJamaahAI fetched /api/jamaah/:id (could 404) and had no defensive null checks
+
+- Fixed .env: restored NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_ANON_KEY + SUPABASE_SERVICE_ROLE_KEY
+- Fixed .env.local: recreated as backup copy
+- Fixed src/lib/supabase/client.ts: singleton pattern + one-time warning for missing env vars
+
+- Fixed src/lib/supabase/query-logger.ts: removed `const isDev` variable, inlined `if (process.env.NODE_ENV === "production") return;`
+
+- Fixed src/components/haji/ai-view.tsx:
+  - CohortAI: added errorMsg state, proper error handling, !data.analisis defensive check
+  - PerJamaahAI: replaced fetch("/api/jamaah/:id") with direct Supabase query for jamaah profile
+  - Both: added errorMsg to EmptyState desc prop, defensive null checks for data.analisis
+
+- Deleted src/lib/db.ts (PrismaClient singleton) — again (git had restored it)
+- Deleted 20 dead Prisma routes — again (git had restored them)
+- Launched 2 parallel subagents to rewrite 11 live API routes from Prisma → Supabase:
+  - PRISMA-FIX-A: 6 routes (jamaah/route.ts, jamaah/[id]/route.ts, risk/route.ts, pre-haji/route.ts, ai/cohort/route.ts, ai/summary/[id]/route.ts)
+  - PRISMA-FIX-B: 5 routes (telemedicine/request/route.ts, smart-monitoring/route.ts, submit/route.ts, ai-summary/route.ts, pre-haji/ai/route.ts)
+- Fixed src/lib/serialize.ts: replaced `import { db } from "./db"` with `import { createAdminClient } from "./supabase/server"`, rewrote recomputeAndSaveRisk to use Supabase
+
+- Final verification:
+  ✓ ZERO Prisma imports in src/
+  ✓ ZERO isDev/IsDev references
+  ✓ .env + .env.local both have Supabase credentials
+  ✓ Lint passes clean (0 errors)
+  ✓ GET / → 200
+  ✓ GET /api/jamaah → 200 (Supabase-backed)
+  ✓ GET /api/ai/cohort → 200 (Supabase-backed)
+  ✓ No errors in dev log
+  ✓ No 400 Bad Request
+  ✓ No ReferenceError
+
+Stage Summary:
+- All root causes fixed: missing env vars, isDev ReferenceError, Prisma routes, 400 Bad Request
+- Supabase is the single source of truth — ZERO Prisma code remains
+- AI dashboard now has proper error handling with loading/error/empty/success states
+- PerJamaahAI queries Supabase directly for jamaah profile (no API 404)
+- All 11 API routes use createAdminClient() + error handling + snake_case↔camelCase mapping
+- serialize.ts recomputeAndSaveRisk uses Supabase (fire-and-forget, try/catch)

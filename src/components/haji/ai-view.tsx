@@ -63,14 +63,22 @@ export function AiView() {
 function CohortAI({ onBack, refreshKey }: { onBack: () => void; refreshKey: number }) {
   const [data, setData] = React.useState<CohortResp | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
+    setErrorMsg(null);
     try {
       const res = await fetch("/api/ai/cohort");
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error ?? `HTTP ${res.status}`);
+      }
       const json = await res.json();
       setData(json as CohortResp);
-    } catch {
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Gagal memuat analisis AI";
+      setErrorMsg(msg);
       setData(null);
     } finally {
       setLoading(false);
@@ -115,7 +123,9 @@ function CohortAI({ onBack, refreshKey }: { onBack: () => void; refreshKey: numb
           </div>
         </div>
       ) : !data ? (
-        <Card className="p-6"><EmptyState icon={AlertTriangle} title="Gagal memuat analisis" /></Card>
+        <Card className="p-6"><EmptyState icon={AlertTriangle} title="Gagal memuat analisis" desc={errorMsg ?? "Coba muat ulang."} /></Card>
+      ) : !data.analisis ? (
+        <Card className="p-6"><EmptyState icon={AlertTriangle} title="Data analisis belum tersedia" /></Card>
       ) : (
         <>
           {/* Statistik ringkas */}
@@ -352,7 +362,9 @@ function PerJamaahAI({ jamaahId, onBack }: { jamaahId: string; onBack: () => voi
           </div>
         </div>
       ) : !data ? (
-        <Card className="p-6"><EmptyState icon={AlertTriangle} title="Gagal memuat analisis" /></Card>
+        <Card className="p-6"><EmptyState icon={AlertTriangle} title="Gagal memuat analisis" desc={errorMsg ?? "Coba muat ulang."} /></Card>
+      ) : !data.analisis ? (
+        <Card className="p-6"><EmptyState icon={AlertTriangle} title="Data analisis belum tersedia" /></Card>
       ) : (
         <>
           {/* Ringkasan */}

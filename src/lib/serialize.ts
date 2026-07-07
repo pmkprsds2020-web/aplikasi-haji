@@ -1,5 +1,5 @@
-import { db } from "./db";
 import { computeRiskForJamaah } from "./risk";
+import { createAdminClient } from "./supabase/server";
 import type { JamaahDetail, JamaahData, ScreeningData, VitalSignData, PascaHajjLabData } from "./types";
 import type {
   PreHajjVitalData,
@@ -117,24 +117,104 @@ export function serializePascaHajjLab(l: {
   };
 }
 
-// Hitung ulang & simpan riskLevel + riskSummary jamaah
+// Hitung ulang & simpan riskLevel + riskSummary jamaah (Supabase-direct)
 export async function recomputeAndSaveRisk(jamaahId: string): Promise<void> {
-  const j = await db.jamaah.findUnique({
-    where: { id: jamaahId },
-    include: { screenings: true, vitalSigns: true, pascaHajjLabs: true },
-  });
-  if (!j) return;
-  const detail: JamaahDetail = {
-    ...serializeJamaah(j),
-    screenings: j.screenings.map(serializeScreening),
-    vitalSigns: j.vitalSigns.map(serializeVital),
-    pascaHajjLabs: (j.pascaHajjLabs ?? []).map(serializePascaHajjLab),
-  };
-  const { level, summary } = computeRiskForJamaah(detail);
-  await db.jamaah.update({
-    where: { id: jamaahId },
-    data: { riskLevel: level, riskSummary: summary },
-  });
+  try {
+    const supabase = createAdminClient();
+    const { data: j } = await supabase
+      .from("jamaah")
+      .select("*")
+      .eq("id", jamaahId)
+      .maybeSingle();
+    if (!j) return;
+
+    const [scrRes, vitRes, labRes] = await Promise.all([
+      supabase.from("screening").select("*").eq("jamaah_id", jamaahId),
+      supabase.from("vital_sign").select("*").eq("jamaah_id", jamaahId),
+      supabase.from("pasca_hajj_lab").select("*").eq("jamaah_id", jamaahId),
+    ]);
+
+    const jRow = j as Record<string, unknown>;
+    const detail: JamaahDetail = {
+      id: String(jRow.id),
+      nama: String(jRow.nama ?? ""),
+      nik: String(jRow.nik ?? ""),
+      kloter: String(jRow.kloter ?? ""),
+      porsi: String(jRow.porsi ?? ""),
+      usia: Number(jRow.usia ?? 0),
+      kelamin: (jRow.kelamin === "P" ? "P" : "L") as "L" | "P",
+      alamat: String(jRow.alamat ?? ""),
+      hp: String(jRow.hp ?? ""),
+      kontakKeluarga: String(jRow.kontak_keluarga ?? ""),
+      tanggalTiba: String(jRow.tanggal_tiba ?? ""),
+      bandara: String(jRow.bandara ?? ""),
+      kabupatenKota: String(jRow.kabupaten_kota ?? ""),
+      puskesmas: String(jRow.puskesmas ?? ""),
+      dokterKeluarga: String(jRow.dokter_keluarga ?? ""),
+      riskLevel: (jRow.risk_level as JamaahData["riskLevel"]) ?? "HIJAU",
+      riskSummary: String(jRow.risk_summary ?? ""),
+      createdAt: String(jRow.created_at ?? ""),
+      updatedAt: String(jRow.updated_at ?? ""),
+      screenings: (scrRes.data ?? []).map((s) => {
+        const sr = s as Record<string, unknown>;
+        let parsed: Record<string, unknown> = {};
+        try { parsed = sr.data ? JSON.parse(String(sr.data)) : {}; } catch { parsed = {}; }
+        return {
+          id: String(sr.id), jamaahId: String(sr.jamaah_id),
+          jenis: sr.jenis as ScreeningData["jenis"],
+          data: parsed, skor: (sr.skor as string | null) ?? null,
+          catatan: (sr.catatan as string | null) ?? null,
+          hariKe: Number(sr.hari_ke ?? 0),
+          createdAt: String(sr.created_at ?? ""),
+        };
+      }),
+      vitalSigns: (vitRes.data ?? []).map((v) => {
+        const vr = v as Record<string, unknown>;
+        return {
+          id: String(vr.id), jamaahId: String(vr.jamaah_id),
+          tdSistolik: (vr.td_sistolik as number | null) ?? null,
+          tdDiastolik: (vr.td_diastolik as number | null) ?? null,
+          nadi: (vr.nadi as number | null) ?? null,
+          rr: (vr.rr as number | null) ?? null,
+          suhu: (vr.suhu as number | null) ?? null,
+          spo2: (vr.spo2 as number | null) ?? null,
+          beratBadan: (vr.berat_badan as number | null) ?? null,
+          gulaDarah: (vr.gula_darah as number | null) ?? null,
+          hariKe: Number(vr.hari_ke ?? 0),
+          catatan: (vr.catatan as string | null) ?? null,
+          createdAt: String(vr.created_at ?? ""),
+        };
+      }),
+      pascaHajjLabs: (labRes.data ?? []).map((l) => {
+        const lr = l as Record<string, unknown>;
+        return {
+          id: String(lr.id), jamaahId: String(lr.jamaah_id),
+          hb: (lr.hb as number | null) ?? null,
+          leukosit: (lr.leukosit as number | null) ?? null,
+          gdp: (lr.gdp as number | null) ?? null,
+          gd2pp: (lr.gd2pp as number | null) ?? null,
+          hba1c: (lr.hba1c as number | null) ?? null,
+          kolesterol: (lr.kolesterol as number | null) ?? null,
+          ldl: (lr.ldl as number | null) ?? null,
+          hdl: (lr.hdl as number | null) ?? null,
+          trigliserida: (lr.trigliserida as number | null) ?? null,
+          sgot: (lr.sgot as number | null) ?? null,
+          sgpt: (lr.sgpt as number | null) ?? null,
+          ureum: (lr.ureum as number | null) ?? null,
+          kreatinin: (lr.kreatinin as number | null) ?? null,
+          catatan: (lr.catatan as string | null) ?? null,
+          createdAt: String(lr.created_at ?? ""),
+        };
+      }),
+    };
+    const { level, summary } = computeRiskForJamaah(detail);
+    await supabase
+      .from("jamaah")
+      .update({ risk_level: level, risk_summary: summary })
+      .eq("id", jamaahId);
+  } catch (e) {
+    console.error("[recomputeAndSaveRisk] error:", e);
+  }
 }
 
 // ===== PRA HAJI SERIALIZERS =====
