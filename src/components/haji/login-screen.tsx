@@ -14,7 +14,7 @@ export function LoginScreen() {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [fullName, setFullName] = React.useState("");
-  const [role, setRole] = React.useState<UserRole>("petugas");
+  const [role, setRole] = React.useState<UserRole>("dokter");
   const [loading, setLoading] = React.useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -134,7 +134,7 @@ export function LoginScreen() {
               <div>
                 <Label className="mb-1.5 block text-xs font-medium text-muted-foreground">Peran</Label>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {(["petugas", "admin", "kepala_klinik", "pj_mutu", "viewer", "jamaah"] as UserRole[]).map((r) => (
+                  {(["dokter", "jamaah"] as UserRole[]).map((r) => (
                     <button
                       key={r}
                       type="button"

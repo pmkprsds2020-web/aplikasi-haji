@@ -74,7 +74,7 @@ export function JamaahDetailView() {
     selectedJamaahId, goJamaahList, goAI, goTelemedicine, detailTab, setDetailTab,
     pascaTab, setPascaTab, refreshKey, bumpRefresh,
   } = useApp();
-  const { isStaff } = useSupabaseAuth();
+  const { isStaff, isDoctor, canDelete, role } = useSupabaseAuth();
   const [detail, setDetail] = React.useState<JamaahDetail | null>(null);
   const [preHajj, setPreHajj] = React.useState<PreHajjBundle | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -201,7 +201,7 @@ export function JamaahDetailView() {
                 <Button size="sm" onClick={() => goAI(j.id)}>
                   <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Analisis AI
                 </Button>
-                {isStaff && (
+                {(isDoctor || isStaff || canDelete) && (
                   <Button variant="outline" size="sm" className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/40" onClick={() => setDeleteOpen(true)}>
                     <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Hapus
                   </Button>

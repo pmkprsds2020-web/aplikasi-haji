@@ -35,7 +35,7 @@ type FilterKey = "ALL" | RiskLevel;
 
 export function JamaahListView() {
   const { goDetail, refreshKey, bumpRefresh } = useApp();
-  const { isStaff } = useSupabaseAuth();
+  const { isStaff, isDoctor, canDelete, role } = useSupabaseAuth();
   const [list, setList] = React.useState<ListItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [q, setQ] = React.useState("");
@@ -66,6 +66,11 @@ export function JamaahListView() {
     const t = setTimeout(load, 250);
     return () => clearTimeout(t);
   }, [load, refreshKey]);
+
+  // Debug logging for delete button visibility
+  React.useEffect(() => {
+    console.log("[JamaahList] role:", role, "isDoctor:", isDoctor, "isStaff:", isStaff, "canDelete:", canDelete);
+  }, [role, isDoctor, isStaff, canDelete]);
 
   const handleDelete = React.useCallback(async () => {
     if (!deleteTarget) return;
@@ -193,8 +198,8 @@ export function JamaahListView() {
                 </div>
                 <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5" />
               </button>
-              {/* Action buttons — only for staff/doctor */}
-              {isStaff && (
+              {/* Action buttons — only for dokter */}
+              {(isDoctor || isStaff || canDelete) && (
                 <div className="flex items-center gap-1">
                   <Button
                     variant="ghost"

@@ -51,8 +51,8 @@ async function requireStaff(): Promise<{ id: string; role: string }> {
     .eq("id", userData.user.id)
     .maybeSingle();
   if (error) throw error;
-  const role = ((profile as { role?: string } | null)?.role) ?? "viewer";
-  const staffRoles = ["super_admin", "admin", "kepala_klinik", "pj_mutu", "petugas"];
+  const role = ((profile as { role?: string } | null)?.role) ?? "jamaah";
+  const staffRoles = ["dokter"];
   if (!staffRoles.includes(role)) {
     throw new Error("FORBIDDEN");
   }

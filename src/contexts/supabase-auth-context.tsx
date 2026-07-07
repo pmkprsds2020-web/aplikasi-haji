@@ -6,34 +6,18 @@ import { createClient } from "@/lib/supabase/client";
 import { logAuditClient } from "@/lib/audit-client";
 
 // ============================================================================
-// Supabase Auth Context (Chapter 6 & 26)
-// Multi-role: super_admin | admin | kepala_klinik | pj_mutu | petugas | viewer | jamaah
+// Supabase Auth Context
+// Only TWO roles: dokter | jamaah
+// - dokter: full CRUD access (SELECT, INSERT, UPDATE, DELETE) — can delete jamaah
+// - jamaah: read-only access to own data — cannot delete anything
 // ============================================================================
 
-export type UserRole =
-  | "super_admin"
-  | "admin"
-  | "kepala_klinik"
-  | "pj_mutu"
-  | "petugas"
-  | "viewer"
-  | "jamaah";
+export type UserRole = "dokter" | "jamaah";
 
-export const STAFF_ROLES: UserRole[] = [
-  "super_admin",
-  "admin",
-  "kepala_klinik",
-  "pj_mutu",
-  "petugas",
-];
+export const STAFF_ROLES: UserRole[] = ["dokter"];
 
 export const ROLE_LABELS: Record<UserRole, string> = {
-  super_admin: "Super Admin",
-  admin: "Admin",
-  kepala_klinik: "Kepala Klinik",
-  pj_mutu: "Penanggung Jawab Mutu",
-  petugas: "Petugas",
-  viewer: "Viewer",
+  dokter: "Dokter",
   jamaah: "Jamaah",
 };
 
@@ -42,8 +26,11 @@ interface AuthContextValue {
   session: Session | null;
   loading: boolean;
   role: UserRole | null;
-  isStaff: boolean;
-  isSuperAdmin: boolean;
+  isStaff: boolean;    // alias for isDoctor (backward compat)
+  isDoctor: boolean;   // true if role === "dokter"
+  isJamaah: boolean;   // true if role === "jamaah"
+  canDelete: boolean;  // true if isDoctor (only doctors can delete)
+  canEdit: boolean;    // true if isDoctor (only doctors can edit)
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (
     email: string,
@@ -68,16 +55,50 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
         setRole(null);
         return;
       }
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", userId)
-        .maybeSingle();
-      if (error) {
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", userId)
+          .maybeSingle();
+        if (error) {
+          console.error("[Auth] Failed to load role:", error.message);
+          setRole(null);
+          return;
+        }
+        // Normalize old roles to the new two-role system.
+        // Any staff role (super_admin, admin, kepala_klinik, pj_mutu, petugas, viewer) → "dokter"
+        const rawRole = data?.role as string | undefined;
+        let normalizedRole: UserRole | null = null;
+        if (rawRole === "jamaah") {
+          normalizedRole = "jamaah";
+        } else if (rawRole === "dokter") {
+          normalizedRole = "dokter";
+        } else if (
+          rawRole === "super_admin" ||
+          rawRole === "admin" ||
+          rawRole === "kepala_klinik" ||
+          rawRole === "pj_mutu" ||
+          rawRole === "petugas" ||
+          rawRole === "viewer" ||
+          rawRole === "operator"
+        ) {
+          // Old staff roles → map to "dokter"
+          normalizedRole = "dokter";
+          console.warn(`[Auth] Old role "${rawRole}" mapped to "dokter". Please update the profile in Supabase.`);
+        } else if (rawRole) {
+          // Unknown role — default to jamaah for safety
+          normalizedRole = "jamaah";
+          console.warn(`[Auth] Unknown role "${rawRole}" — defaulting to "jamaah".`);
+        }
+        setRole(normalizedRole);
+
+        // Debug logging
+        console.log("[Auth] profile.role:", rawRole, "→ normalized:", normalizedRole);
+      } catch (e) {
+        console.error("[Auth] loadRole exception:", e);
         setRole(null);
-        return;
       }
-      setRole((data?.role as UserRole) ?? null);
     },
     [supabase]
   );
@@ -116,7 +137,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
   );
 
   const signUp = React.useCallback(
-    async (email: string, password: string, fullName: string, role: UserRole = "petugas") => {
+    async (email: string, password: string, fullName: string, role: UserRole = "dokter") => {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -141,8 +162,14 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     setRole(null);
   }, [supabase, session]);
 
-  const isStaff = role ? STAFF_ROLES.includes(role) : false;
-  const isSuperAdmin = role === "super_admin";
+  const isDoctor = role === "dokter";
+  const isJamaah = role === "jamaah";
+  const isStaff = isDoctor; // backward compat alias
+  const canDelete = isDoctor; // only doctors can delete
+  const canEdit = isDoctor; // only doctors can edit
+
+  // Debug logging
+  console.log("[Auth] role:", role, "isDoctor:", isDoctor, "canDelete:", canDelete, "canEdit:", canEdit);
 
   const value: AuthContextValue = {
     user: session?.user ?? null,
@@ -150,7 +177,10 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     loading,
     role,
     isStaff,
-    isSuperAdmin,
+    isDoctor,
+    isJamaah,
+    canDelete,
+    canEdit,
     signIn,
     signUp,
     signOut,

@@ -256,7 +256,7 @@ export function JamaahProfil() {
       </Card>
 
       <p className="pb-2 text-center text-sm text-muted-foreground">
-        Data profil hanya dapat diubah oleh dokter atau petugas klinik.
+        Data profil hanya dapat diubah oleh dokter.
         Jika ada informasi yang tidak sesuai, mohon hubungi dokter pendamping Anda.
       </p>
     </div>
