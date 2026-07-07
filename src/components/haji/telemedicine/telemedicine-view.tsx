@@ -350,7 +350,7 @@ function RoomRow({
   onClick: () => void;
 }) {
   const j = room.jamaah;
-  // ===== Defensive null check: jamaah may be null if jamaah row was deleted =====
+  // ===== Defensive null check: jamaah may be null if jamaah row was deleted or query failed =====
   if (!j) {
     return (
       <li>
@@ -366,9 +366,9 @@ function RoomRow({
             ?
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-muted-foreground">Jamaah tidak ditemukan</p>
+            <p className="truncate text-sm font-semibold text-muted-foreground">Data jamaah gagal dimuat</p>
             <p className="truncate text-xs text-muted-foreground">
-              {room.lastMessage?.content || "Data jamaah tidak tersedia"}
+              {room.lastMessage?.content || "ID: " + room.jamaahId}
             </p>
             {room.unreadByDoctor > 0 && (
               <span className="mt-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">

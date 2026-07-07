@@ -44,30 +44,148 @@ export async function ensureRoom(jamaahId: string, doctorId: string): Promise<{ 
 
 export async function loadRoomsList(): Promise<{ rooms: RoomListItem[]; error: string | null }> {
   const supabase = createClient();
+
+  // ===== Step 1: Fetch chat_room records =====
   const t0 = performance.now();
-  const { data: rooms, error: rErr } = await supabase.from("chat_room").select("*").order("last_message_at", { ascending: false });
+  const { data: rooms, error: rErr } = await supabase
+    .from("chat_room")
+    .select("*")
+    .order("last_message_at", { ascending: false });
   logSelect("chat_room", "ORDER BY last_message_at DESC", rooms, rErr, Math.round(performance.now() - t0));
-  if (rErr) return { rooms: [], error: `[${rErr.code}] ${rErr.message}` };
-  if (!rooms || rooms.length === 0) return { rooms: [], error: null };
-  const roomRows = rooms as ChatRoomRow[];
-  const jamaahIds = Array.from(new Set(roomRows.map((r) => r.jamaah_id))).filter(Boolean);
-  const roomIds = roomRows.map((r) => r.id);
-  const [jamaahRes, messagesRes] = await Promise.allSettled([
-    jamaahIds.length > 0 ? supabase.from("jamaah").select("id, nama, nik, kloter, usia, kelamin, puskesmas, risk_level, risk_summary").in("id", jamaahIds) : Promise.resolve({ data: [], error: null }),
-    roomIds.length > 0 ? supabase.from("chat_message").select("*").in("room_id", roomIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
-  ]);
-  const jamaahData = jamaahRes.status === "fulfilled" ? jamaahRes.value.data : null;
-  const jamaahErr = jamaahRes.status === "fulfilled" ? jamaahRes.value.error : null;
-  const messagesData = messagesRes.status === "fulfilled" ? messagesRes.value.data : null;
-  logSelect("jamaah", `id IN (${jamaahIds.length})`, jamaahData, jamaahErr, 0);
-  logSelect("chat_message", `room_id IN (${roomIds.length})`, messagesData, null, 0);
-  const jamaahMap = new Map<string, RoomListItem["jamaah"]>();
-  for (const j of (jamaahData ?? []) as Array<Record<string, unknown>>) {
-    jamaahMap.set(String(j.id), { id: String(j.id), nama: String(j.nama ?? ""), nik: String(j.nik ?? ""), kloter: String(j.kloter ?? ""), usia: Number(j.usia ?? 0), kelamin: String(j.kelamin ?? ""), puskesmas: String(j.puskesmas ?? ""), riskLevel: String(j.risk_level ?? "HIJAU"), riskSummary: String(j.risk_summary ?? "") });
+
+  if (rErr) {
+    console.error("[loadRoomsList] chat_room query failed:", rErr.code, rErr.message);
+    return { rooms: [], error: `[${rErr.code}] ${rErr.message}` };
   }
+  if (!rooms || rooms.length === 0) {
+    console.log("[loadRoomsList] No chat rooms found — returning empty list");
+    return { rooms: [], error: null };
+  }
+
+  const roomRows = rooms as ChatRoomRow[];
+  console.log("[loadRoomsList] chat_rooms:", roomRows.length, "rooms");
+  console.log("[loadRoomsList] chatRooms[0].jamaah_id:", roomRows[0]?.jamaah_id);
+
+  // ===== Step 2: Collect jamaah_ids and validate UUIDs =====
+  // jamaah.id is UUID type, but chat_room.jamaah_id is text.
+  // If a jamaah_id is not a valid UUID (e.g., old Prisma cuid), the .in() query
+  // on jamaah will fail with HTTP 400. We filter to only valid UUIDs.
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const allJamaahIds = Array.from(new Set(roomRows.map((r) => r.jamaah_id).filter(Boolean)));
+  const validUuids = allJamaahIds.filter((id) => UUID_REGEX.test(id));
+  const invalidIds = allJamaahIds.filter((id) => !UUID_REGEX.test(id));
+
+  console.log("[loadRoomsList] jamaah_ids:", allJamaahIds.length, "total,", validUuids.length, "valid UUIDs,", invalidIds.length, "invalid");
+  if (invalidIds.length > 0) {
+    console.warn("[loadRoomsList] Invalid (non-UUID) jamaah_ids:", invalidIds);
+  }
+
+  const roomIds = roomRows.map((r) => r.id);
+
+  // ===== Step 3: Fetch jamaah + messages in parallel using Promise.allSettled =====
+  // If jamaah query fails (400), we still show rooms with null jamaah — NOT blank.
+  const [jamaahRes, messagesRes] = await Promise.allSettled([
+    validUuids.length > 0
+      ? supabase
+          .from("jamaah")
+          .select("id, nama, nik, kloter, usia, kelamin, puskesmas, risk_level, risk_summary")
+          .in("id", validUuids)
+      : Promise.resolve({ data: [], error: null }),
+    roomIds.length > 0
+      ? supabase
+          .from("chat_message")
+          .select("*")
+          .in("room_id", roomIds)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  // ===== Step 4: Process jamaah results =====
+  let jamaahData: Array<Record<string, unknown>> | null = null;
+  if (jamaahRes.status === "fulfilled") {
+    jamaahData = (jamaahRes.value.data ?? []) as Array<Record<string, unknown>>;
+    if (jamaahRes.value.error) {
+      console.error("[loadRoomsList] jamaah query error:", jamaahRes.value.error.code, jamaahRes.value.error.message);
+      // Fallback: try fetching jamaah one by one with .eq() (handles non-UUID IDs)
+      if (validUuids.length === 0 && allJamaahIds.length > 0) {
+        console.log("[loadRoomsList] Fallback: fetching jamaah individually with .eq()");
+        jamaahData = [];
+        for (const jid of allJamaahIds) {
+          try {
+            const { data: singleJamaah, error: singleErr } = await supabase
+              .from("jamaah")
+              .select("id, nama, nik, kloter, usia, kelamin, puskesmas, risk_level, risk_summary")
+              .eq("id", jid)
+              .maybeSingle();
+            if (!singleErr && singleJamaah) {
+              jamaahData.push(singleJamaah as Record<string, unknown>);
+            }
+          } catch {
+            // Skip invalid IDs
+          }
+        }
+        console.log("[loadRoomsList] Fallback fetched:", jamaahData.length, "jamaah");
+      }
+    } else {
+      console.log("[loadRoomsList] jamaah fetched:", jamaahData.length);
+    }
+  } else {
+    console.error("[loadRoomsList] jamaah query rejected:", jamaahRes.reason);
+  }
+
+  // ===== Step 5: Build jamaah map =====
+  const jamaahMap = new Map<string, RoomListItem["jamaah"]>();
+  for (const j of jamaahData ?? []) {
+    const id = String(j.id);
+    jamaahMap.set(id, {
+      id,
+      nama: String(j.nama ?? ""),
+      nik: String(j.nik ?? ""),
+      kloter: String(j.kloter ?? ""),
+      usia: Number(j.usia ?? 0),
+      kelamin: String(j.kelamin ?? ""),
+      puskesmas: String(j.puskesmas ?? ""),
+      riskLevel: String(j.risk_level ?? "HIJAU"),
+      riskSummary: String(j.risk_summary ?? ""),
+    });
+  }
+  console.log("[loadRoomsList] jamaahMap:", jamaahMap.size, "entries");
+  console.log("[loadRoomsList] jamaahMap keys:", Array.from(jamaahMap.keys()));
+
+  // ===== Step 6: Process messages =====
+  let messagesData: ChatMessageRow[] | null = null;
+  if (messagesRes.status === "fulfilled") {
+    messagesData = (messagesRes.value.data ?? []) as ChatMessageRow[];
+    console.log("[loadRoomsList] messages fetched:", messagesData.length);
+  } else {
+    console.warn("[loadRoomsList] messages query rejected:", messagesRes.reason);
+  }
+
+  // Build latest-message-per-room map
   const latestMsgMap = new Map<string, ChatMessageRow>();
-  for (const m of (messagesData ?? []) as ChatMessageRow[]) { if (!latestMsgMap.has(m.room_id)) latestMsgMap.set(m.room_id, m); }
-  const list: RoomListItem[] = roomRows.map((r) => ({ id: r.id, jamaahId: r.jamaah_id, doctorId: r.doctor_id, unreadByDoctor: r.unread_by_doctor ?? 0, unreadByJamaah: r.unread_by_jamaah ?? 0, lastMessageAt: r.last_message_at ?? r.created_at, jamaah: jamaahMap.get(r.jamaah_id) ?? null, lastMessage: latestMsgMap.get(r.id) ?? null }));
+  for (const m of messagesData ?? []) {
+    if (!latestMsgMap.has(m.room_id)) {
+      latestMsgMap.set(m.room_id, m);
+    }
+  }
+
+  // ===== Step 7: Assemble final list =====
+  const list: RoomListItem[] = roomRows.map((r) => ({
+    id: r.id,
+    jamaahId: r.jamaah_id,
+    doctorId: r.doctor_id,
+    unreadByDoctor: r.unread_by_doctor ?? 0,
+    unreadByJamaah: r.unread_by_jamaah ?? 0,
+    lastMessageAt: r.last_message_at ?? r.created_at,
+    jamaah: jamaahMap.get(r.jamaah_id) ?? null,
+    lastMessage: latestMsgMap.get(r.id) ?? null,
+  }));
+
+  // Log final result
+  const withNama = list.filter((r) => r.jamaah !== null).length;
+  const withoutNama = list.filter((r) => r.jamaah === null).length;
+  console.log(`[loadRoomsList] Final: ${list.length} rooms (${withNama} with nama, ${withoutNama} without nama)`);
+
   return { rooms: list, error: null };
 }
 
