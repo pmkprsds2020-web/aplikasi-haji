@@ -33,7 +33,7 @@ export function JamaahFormDialog({ open, onOpenChange, onSaved, initial }: Props
           ? {
               nama: initial.nama, nik: initial.nik, kloter: initial.kloter, porsi: initial.porsi,
               usia: String(initial.usia), kelamin: initial.kelamin, alamat: initial.alamat,
-              hp: initial.hp, kontakKeluarga: initial.kontakKeluarga,
+              hp: initial.hp, kontakKeluarga: initial.kontakKeluarga, email: (initial as Record<string, unknown>).email as string ?? "",
               tanggalTiba: initial.tanggalTiba.slice(0, 10),
               bandara: initial.bandara, kabupatenKota: initial.kabupatenKota,
               puskesmas: initial.puskesmas, dokterKeluarga: initial.dokterKeluarga,
@@ -43,7 +43,7 @@ export function JamaahFormDialog({ open, onOpenChange, onSaved, initial }: Props
               obatRutin: initial.obatRutin ?? "", statusIstithaah: initial.statusIstithaah ?? "Belum Dinilai",
               tanggalBerangkat: initial.tanggalBerangkat ? initial.tanggalBerangkat.slice(0, 10) : "",
             }
-          : { kelamin: "L", tanggalTiba: new Date().toISOString().slice(0, 10), statusIstithaah: "Belum Dinilai" }
+          : { kelamin: "L", tanggalTiba: new Date().toISOString().slice(0, 10), statusIstithaah: "Belum Dinilai", email: "" }
       );
     }
   }, [open, initial]);
@@ -63,6 +63,7 @@ export function JamaahFormDialog({ open, onOpenChange, onSaved, initial }: Props
         nama: f.nama, nik: f.nik, kloter: f.kloter, porsi: f.porsi,
         usia: Number(f.usia), kelamin: f.kelamin,
         alamat: f.alamat ?? "", hp: f.hp ?? "",
+        email: f.email ?? null,
         kontak_keluarga: f.kontakKeluarga ?? "",
         tanggal_tiba: f.tanggalTiba ? new Date(f.tanggalTiba).toISOString() : new Date().toISOString(),
         bandara: f.bandara ?? "", kabupaten_kota: f.kabupatenKota ?? "",
@@ -159,6 +160,11 @@ export function JamaahFormDialog({ open, onOpenChange, onSaved, initial }: Props
               <div>
                 <Label className="mb-1 block text-xs text-muted-foreground">Nomor HP</Label>
                 <input className={FIELD_CLASS} value={f.hp ?? ""} onChange={(e) => set("hp", e.target.value)} />
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs text-muted-foreground">Email</Label>
+                <input type="email" className={FIELD_CLASS} value={f.email ?? ""} onChange={(e) => set("email", e.target.value)} placeholder="jamaah@email.com" />
+                <p className="mt-1 text-[10px] text-muted-foreground">Email digunakan jamaah untuk registrasi akun. Jika kosong, jamaah tidak dapat login.</p>
               </div>
               <div>
                 <Label className="mb-1 block text-xs text-muted-foreground">Kontak Keluarga</Label>

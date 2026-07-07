@@ -138,12 +138,47 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
 
   const signUp = React.useCallback(
     async (email: string, password: string, fullName: string, role: UserRole = "dokter") => {
+      // Step 1: Create auth account
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: { data: { full_name: fullName, role } },
       });
       if (error) return { error: error.message };
+
+      // Step 2: If role is jamaah, link auth.uid() to existing jamaah record by email
+      if (role === "jamaah" && data.user) {
+        try {
+          console.log("[Auth] Linking jamaah account: searching for email =", email);
+          const { data: existingJamaah, error: linkErr } = await supabase
+            .from("jamaah")
+            .select("id, nama, email, user_id")
+            .eq("email", email)
+            .maybeSingle();
+
+          if (linkErr) {
+            console.warn("[Auth] Error finding jamaah by email:", linkErr.message);
+          } else if (existingJamaah) {
+            // Found existing jamaah record — link auth.uid() to user_id
+            console.log("[Auth] Found existing jamaah:", (existingJamaah as Record<string, unknown>).nama, "— linking user_id");
+            const jamaahId = String((existingJamaah as Record<string, unknown>).id);
+            const { error: updateErr } = await supabase
+              .from("jamaah")
+              .update({ user_id: data.user.id })
+              .eq("id", jamaahId);
+            if (updateErr) {
+              console.warn("[Auth] Failed to link user_id:", updateErr.message);
+            } else {
+              console.log("[Auth] Jamaah account linked successfully! user_id =", data.user.id);
+            }
+          } else {
+            console.log("[Auth] No existing jamaah found with email =", email, "— account not linked yet");
+          }
+        } catch (e) {
+          console.warn("[Auth] Jamaah linking exception:", e);
+        }
+      }
+
       if (data.session) {
         setSession(data.session);
         loadRole(data.session.user?.id);
