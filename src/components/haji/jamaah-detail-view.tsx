@@ -16,10 +16,11 @@ import {
   ArrowLeft, User, Plane, Activity, History, Sparkles, Pencil,
   Phone, MapPin, Calendar, Stethoscope, Users, ShieldCheck, MessageCircle,
   LayoutDashboard, TestTube, ClipboardList, HeartPulse, Pill,
-  Plus, Save, Loader2,
+  Plus, Save, Loader2, Trash2,
   type LucideIcon,
 } from "lucide-react";
 import { useApp, type DetailMainTab } from "@/lib/store";
+import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
 import {
   RISK_STYLE, formatTanggal, hariSejak, initials, kelaminLabel,
 } from "@/lib/format";
@@ -32,6 +33,16 @@ import { toast } from "sonner";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { JamaahFormDialog } from "./jamaah-form-dialog";
 import { ScreeningDialog } from "./screening-dialog";
@@ -63,6 +74,7 @@ export function JamaahDetailView() {
     selectedJamaahId, goJamaahList, goAI, goTelemedicine, detailTab, setDetailTab,
     pascaTab, setPascaTab, refreshKey, bumpRefresh,
   } = useApp();
+  const { isStaff } = useSupabaseAuth();
   const [detail, setDetail] = React.useState<JamaahDetail | null>(null);
   const [preHajj, setPreHajj] = React.useState<PreHajjBundle | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -70,6 +82,8 @@ export function JamaahDetailView() {
   const [screeningOpen, setScreeningOpen] = React.useState<JenisSkrining | null>(null);
   const [vitalOpen, setVitalOpen] = React.useState(false);
   const [editOpen, setEditOpen] = React.useState(false);
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [preSubTab, setPreSubTab] = React.useState<PreHajjSubTab>("ringkasan");
 
@@ -187,6 +201,11 @@ export function JamaahDetailView() {
                 <Button size="sm" onClick={() => goAI(j.id)}>
                   <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Analisis AI
                 </Button>
+                {isStaff && (
+                  <Button variant="outline" size="sm" className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/40" onClick={() => setDeleteOpen(true)}>
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Hapus
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -347,6 +366,53 @@ export function JamaahDetailView() {
         initial={j}
         onSaved={() => bumpRefresh()}
       />
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Hapus Data Jamaah</AlertDialogTitle>
+            <AlertDialogDescription>
+              Apakah Anda yakin ingin menghapus data jamaah ini? Semua data yang berkaitan dengan jamaah akan ikut dihapus dan tindakan ini tidak dapat dibatalkan.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded-lg border border-border bg-accent/30 px-4 py-2 text-sm">
+            <p className="font-semibold">{j.nama}</p>
+            <p className="text-xs text-muted-foreground">NIK: {j.nik} · Kloter {j.kloter}</p>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Batal</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                setDeleting(true);
+                try {
+                  const res = await fetch(`/api/jamaah/${j.id}`, { method: "DELETE" });
+                  const data = await res.json();
+                  if (!res.ok) {
+                    throw new Error(data.error ?? "Gagal menghapus data jamaah. Silakan coba kembali.");
+                  }
+                  toast.success("Data jamaah berhasil dihapus.");
+                  setDeleteOpen(false);
+                  goJamaahList();
+                  bumpRefresh();
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "Gagal menghapus data jamaah. Silakan coba kembali.");
+                } finally {
+                  setDeleting(false);
+                }
+              }}
+              disabled={deleting}
+              className="bg-rose-600 text-white hover:bg-rose-700 focus:ring-rose-600"
+            >
+              {deleting ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Menghapus...</>
+              ) : (
+                <><Trash2 className="mr-2 h-4 w-4" /> Hapus</>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

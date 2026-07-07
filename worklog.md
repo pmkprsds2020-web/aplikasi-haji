@@ -1147,3 +1147,58 @@ Stage Summary:
   6. ✅ 400 Bad Request → fixed by restoring env vars
   7. ✅ /api/telemedicine/rooms calls → replaced with loadRoomsList() from Supabase
   8. ✅ /api/telemedicine/dashboard calls → replaced with loadTelemedicineDashboardStats()
+
+---
+Task ID: DELETE-JAMAAH-1
+Agent: Orchestrator
+Task: Add "Hapus Jamaah" (Delete Jamaah) feature to Data Jamaah module
+
+Work Log:
+- Updated src/app/api/jamaah/[id]/route.ts DELETE handler:
+  - Added authentication check (supabase.auth.getUser())
+  - Added self-delete prevention (jamaah.user_id === user.id → 403)
+  - Fetch jamaah name before deletion (for audit log + confirmation dialog)
+  - Cascade delete: vital_sign, screening, pasca_hajj_lab, pre_hajj_* (9 tables), telemedicine_request, telemedicine_ai_summary, telemedicine_schedule, chat_message, chat_room, then jamaah
+  - Added audit log: inserts into audit_log table with user_id, user_name, jamaah_id, jamaah_name, action=DELETE_JAMAAH, activity text, ip_address, user_agent
+  - Returns { ok: true, message: "Data jamaah berhasil dihapus." } on success
+
+- Updated src/components/haji/jamaah-list-view.tsx:
+  - Added Trash2 icon import, AlertDialog components, useSupabaseAuth, toast
+  - Added deleteTarget + deleting state
+  - Added handleDelete() — calls DELETE /api/jamaah/[id], toast success/error, bumpRefresh()
+  - Changed list items from <button> to <div> with inner <button> for row click + separate delete button
+  - Delete button (Trash2 icon, red color) only visible when isStaff === true
+  - AlertDialog with title "Hapus Data Jamaah", warning text, Batal/Hapus buttons
+  - Loading state: "Menghapus..." with spinner, buttons disabled
+  - Shows jamaah name + NIK in confirmation dialog
+
+- Updated src/components/haji/jamaah-detail-view.tsx:
+  - Added Trash2 icon, AlertDialog components, useSupabaseAuth import
+  - Added deleteOpen + deleting state
+  - Added "Hapus" button next to Edit/Chat/AI buttons (only when isStaff === true)
+  - AlertDialog with same confirmation text + loading state
+  - After successful delete: toast success, goJamaahList(), bumpRefresh()
+
+- Role-based visibility:
+  - Both list view and detail view use `isStaff` from useSupabaseAuth()
+  - isStaff = role in ['super_admin','admin','kepala_klinik','pj_mutu','petugas']
+  - Jamaah role (isStaff=false) cannot see delete buttons
+
+- Lint: passes clean (0 errors)
+- Server: GET / 200 confirmed
+
+Stage Summary:
+- ✓ Delete button (Trash2 icon, red) on each jamaah row — doctor only
+- ✓ Confirmation dialog "Hapus Data Jamaah" with warning text
+- ✓ Batal = close dialog, Hapus = execute delete
+- ✓ Cascade delete: 15+ child tables deleted before jamaah
+- ✓ Toast "Data jamaah berhasil dihapus." on success
+- ✓ Toast "Gagal menghapus data jamaah..." on failure
+- ✓ Loading state: "Menghapus..." with spinner, buttons disabled
+- ✓ Role-based: only isStaff can see delete button (jamaah cannot)
+- ✓ Self-delete prevention: cannot delete own account (403)
+- ✓ Audit log: doctor name, jamaah name, timestamp, IP, user-agent, activity text
+- ✓ After delete: list refreshes without page reload, dashboard updates via bumpRefresh()
+- ✓ Delete button also on detail view header (next to Edit)
+- ✓ After delete from detail view: returns to jamaah list
+- ✓ Lint clean, no TypeScript errors

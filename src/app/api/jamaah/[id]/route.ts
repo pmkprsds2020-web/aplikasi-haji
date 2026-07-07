@@ -258,93 +258,88 @@ export async function PUT(
   }
 }
 
-// DELETE /api/jamaah/[id] — cascade delete
+// DELETE /api/jamaah/[id] — cascade delete + audit log
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
     const supabase = await createClient();
 
+    // Get the current user (for audit log + self-delete prevention)
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Tidak terautentikasi" }, { status: 401 });
+    }
+
+    // Fetch jamaah data (for name + self-delete check)
+    const { data: jamaah, error: jamaahErr } = await supabase
+      .from("jamaah")
+      .select("id, nama, user_id")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (jamaahErr) {
+      return NextResponse.json({ error: jamaahErr.message }, { status: 500 });
+    }
+    if (!jamaah) {
+      return NextResponse.json({ error: "Jamaah tidak ditemukan" }, { status: 404 });
+    }
+
+    // Self-delete prevention: don't allow deleting if jamaah.user_id matches current user
+    const jamaahRow = jamaah as Record<string, unknown>;
+    if (jamaahRow.user_id && jamaahRow.user_id === user.id) {
+      return NextResponse.json(
+        { error: "Tidak dapat menghapus akun Anda sendiri." },
+        { status: 403 }
+      );
+    }
+
+    const jamaahNama = String(jamaahRow.nama ?? "Unknown");
+
+    // Get doctor profile name for audit log
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("full_name, role")
+      .eq("id", user.id)
+      .maybeSingle();
+    const doctorName = (profile as Record<string, unknown> | null)?.full_name ?? user.email ?? "Unknown";
+
     // Find chat rooms for this jamaah (to delete their messages)
-    const { data: rooms, error: roomErr } = await supabase
+    const { data: rooms } = await supabase
       .from("chat_room")
       .select("id")
       .eq("jamaah_id", id);
-    if (roomErr) {
-      return NextResponse.json({ error: roomErr.message }, { status: 500 });
-    }
-    const roomIds = (rooms ?? []).map((r: any) => r.id);
+    const roomIds = ((rooms ?? []) as Array<Record<string, unknown>>).map((r) => String(r.id));
 
     // Cascade deletions in parallel
     const deletes: Promise<unknown>[] = [
       supabase.from("vital_sign").delete().eq("jamaah_id", id),
       supabase.from("screening").delete().eq("jamaah_id", id),
-      (supabase as any)
-        .from("pasca_hajj_lab")
-        .delete()
-        .eq("jamaah_id", id),
-      (supabase as any)
-        .from("pre_hajj_vital")
-        .delete()
-        .eq("jamaah_id", id),
-      (supabase as any)
-        .from("pre_hajj_lab")
-        .delete()
-        .eq("jamaah_id", id),
-      (supabase as any)
-        .from("pre_hajj_chronic")
-        .delete()
-        .eq("jamaah_id", id),
-      (supabase as any)
-        .from("pre_hajj_screening")
-        .delete()
-        .eq("jamaah_id", id),
-      (supabase as any)
-        .from("pre_hajj_medication")
-        .delete()
-        .eq("jamaah_id", id),
-      (supabase as any)
-        .from("pre_hajj_immunization")
-        .delete()
-        .eq("jamaah_id", id),
-      (supabase as any)
-        .from("pre_hajj_fitness")
-        .delete()
-        .eq("jamaah_id", id),
-      (supabase as any)
-        .from("pre_hajj_education")
-        .delete()
-        .eq("jamaah_id", id),
-      (supabase as any)
-        .from("pre_hajj_ai_assessment")
-        .delete()
-        .eq("jamaah_id", id),
-      (supabase as any)
-        .from("telemedicine_request")
-        .delete()
-        .eq("jamaah_id", id),
-      (supabase as any)
-        .from("telemedicine_ai_summary")
-        .delete()
-        .eq("jamaah_id", id),
-      (supabase as any)
-        .from("telemedicine_schedule")
-        .delete()
-        .eq("jamaah_id", id),
+      (supabase as Record<string, unknown>).from("pasca_hajj_lab").delete().eq("jamaah_id", id),
+      (supabase as Record<string, unknown>).from("pre_hajj_vital").delete().eq("jamaah_id", id),
+      (supabase as Record<string, unknown>).from("pre_hajj_lab").delete().eq("jamaah_id", id),
+      (supabase as Record<string, unknown>).from("pre_hajj_chronic").delete().eq("jamaah_id", id),
+      (supabase as Record<string, unknown>).from("pre_hajj_screening").delete().eq("jamaah_id", id),
+      (supabase as Record<string, unknown>).from("pre_hajj_medication").delete().eq("jamaah_id", id),
+      (supabase as Record<string, unknown>).from("pre_hajj_immunization").delete().eq("jamaah_id", id),
+      (supabase as Record<string, unknown>).from("pre_hajj_fitness").delete().eq("jamaah_id", id),
+      (supabase as Record<string, unknown>).from("pre_hajj_education").delete().eq("jamaah_id", id),
+      (supabase as Record<string, unknown>).from("pre_hajj_ai_assessment").delete().eq("jamaah_id", id),
+      (supabase as Record<string, unknown>).from("telemedicine_request").delete().eq("jamaah_id", id),
+      (supabase as Record<string, unknown>).from("telemedicine_ai_summary").delete().eq("jamaah_id", id),
+      (supabase as Record<string, unknown>).from("telemedicine_schedule").delete().eq("jamaah_id", id),
     ];
     if (roomIds.length) {
-      deletes.push(
-        supabase.from("chat_message").delete().in("room_id", roomIds)
-      );
+      deletes.push(supabase.from("chat_message").delete().in("room_id", roomIds));
     }
 
     const results = await Promise.all(deletes);
     for (const r of results) {
-      const err = (r as any)?.error;
+      const err = (r as { error?: { message?: string } | null })?.error;
       if (err) {
-        return NextResponse.json({ error: err.message }, { status: 500 });
+        return NextResponse.json({ error: err.message ?? "Gagal menghapus data terkait" }, { status: 500 });
       }
     }
 
@@ -365,9 +360,31 @@ export async function DELETE(
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true });
+    // Write audit log (fire-and-forget — don't block response if it fails)
+    const userAgent = req.headers.get("user-agent") ?? "Unknown";
+    const clientIp = req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? "Unknown";
+    try {
+      await (supabase as Record<string, unknown>).from("audit_log").insert({
+        user_id: user.id,
+        user_name: doctorName,
+        jamaah_id: id,
+        jamaah_name: jamaahNama,
+        action: "DELETE_JAMAAH",
+        activity: `${doctorName} menghapus data jamaah ${jamaahNama}.`,
+        ip_address: clientIp,
+        user_agent: userAgent,
+        created_at: new Date().toISOString(),
+      });
+    } catch (auditErr) {
+      console.warn("[DELETE] audit log failed:", auditErr);
+      // Non-fatal — deletion already succeeded
+    }
+
+    console.log(`[DELETE] ${doctorName} menghapus data jamaah ${jamaahNama} (id: ${id})`);
+
+    return NextResponse.json({ ok: true, message: "Data jamaah berhasil dihapus." });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Gagal menghapus jamaah";
+    const msg = e instanceof Error ? e.message : "Gagal menghapus data jamaah";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
