@@ -20,6 +20,7 @@ function mapJamaah(j: any): JamaahData {
     kelamin: j.kelamin as "L" | "P",
     alamat: j.alamat ?? "",
     hp: j.hp ?? "",
+    email: j.email ?? null,
     kontakKeluarga: j.kontak_keluarga ?? "",
     tanggalTiba: j.tanggal_tiba,
     bandara: j.bandara ?? "",
@@ -207,6 +208,7 @@ export async function PUT(
     if (body.kelamin !== undefined) patch.kelamin = body.kelamin;
     if (body.alamat !== undefined) patch.alamat = body.alamat;
     if (body.hp !== undefined) patch.hp = body.hp;
+    if (body.email !== undefined) patch.email = body.email || null;
     if (body.kontakKeluarga !== undefined)
       patch.kontak_keluarga = body.kontakKeluarga;
     if (body.tanggalTiba !== undefined)

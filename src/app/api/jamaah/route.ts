@@ -21,6 +21,7 @@ function mapJamaah(j: any): JamaahData {
     kelamin: j.kelamin as "L" | "P",
     alamat: j.alamat ?? "",
     hp: j.hp ?? "",
+    email: j.email ?? null,
     kontakKeluarga: j.kontak_keluarga ?? "",
     tanggalTiba: j.tanggal_tiba,
     bandara: j.bandara ?? "",

@@ -58,7 +58,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
       try {
         const { data, error } = await supabase
           .from("profiles")
-          .select("role")
+          .select("role, email, full_name")
           .eq("id", userId)
           .maybeSingle();
         if (error) {
@@ -66,35 +66,69 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
           setRole(null);
           return;
         }
+
         // Normalize old roles to the new two-role system.
-        // Any staff role (super_admin, admin, kepala_klinik, pj_mutu, petugas, viewer) → "dokter"
         const rawRole = data?.role as string | undefined;
+        const profileEmail = data?.email as string | undefined;
         let normalizedRole: UserRole | null = null;
         if (rawRole === "jamaah") {
           normalizedRole = "jamaah";
         } else if (rawRole === "dokter") {
           normalizedRole = "dokter";
         } else if (
-          rawRole === "super_admin" ||
-          rawRole === "admin" ||
-          rawRole === "kepala_klinik" ||
-          rawRole === "pj_mutu" ||
-          rawRole === "petugas" ||
-          rawRole === "viewer" ||
-          rawRole === "operator"
+          rawRole === "super_admin" || rawRole === "admin" ||
+          rawRole === "kepala_klinik" || rawRole === "pj_mutu" ||
+          rawRole === "petugas" || rawRole === "viewer" || rawRole === "operator"
         ) {
-          // Old staff roles → map to "dokter"
           normalizedRole = "dokter";
-          console.warn(`[Auth] Old role "${rawRole}" mapped to "dokter". Please update the profile in Supabase.`);
         } else if (rawRole) {
-          // Unknown role — default to jamaah for safety
           normalizedRole = "jamaah";
-          console.warn(`[Auth] Unknown role "${rawRole}" — defaulting to "jamaah".`);
         }
         setRole(normalizedRole);
 
-        // Debug logging
-        console.log("[Auth] profile.role:", rawRole, "→ normalized:", normalizedRole);
+        console.log("[Auth] profile.role:", rawRole, "→ normalized:", normalizedRole, "| email:", profileEmail, "| auth.uid:", userId);
+
+        // ===== AUTO-LINK: If jamaah, try to link auth account to jamaah record =====
+        if (normalizedRole === "jamaah" && profileEmail) {
+          try {
+            console.log("[Auth] Auto-linking: searching jamaah by email =", profileEmail);
+            const { data: jamaahRow, error: jErr } = await supabase
+              .from("jamaah")
+              .select("id, nama, email, user_id")
+              .eq("email", profileEmail)
+              .maybeSingle();
+
+            console.log("[Auth] Auto-link jamaah query result:", jamaahRow, "error:", jErr);
+
+            if (jErr) {
+              console.warn("[Auth] Auto-link: query error:", jErr.message);
+            } else if (jamaahRow) {
+              const jamaahUserId = (jamaahRow as Record<string, unknown>).user_id as string | null;
+              if (!jamaahUserId) {
+                // user_id is null → link it now
+                console.log("[Auth] Auto-link: found unlinked jamaah, setting user_id =", userId);
+                const jamaahId = String((jamaahRow as Record<string, unknown>).id);
+                const { error: updateErr } = await supabase
+                  .from("jamaah")
+                  .update({ user_id: userId })
+                  .eq("id", jamaahId);
+                if (updateErr) {
+                  console.warn("[Auth] Auto-link: failed to set user_id:", updateErr.message);
+                } else {
+                  console.log("[Auth] Auto-link: SUCCESS! jamaah.user_id set to", userId);
+                }
+              } else if (jamaahUserId === userId) {
+                console.log("[Auth] Auto-link: jamaah already linked (user_id matches)");
+              } else {
+                console.warn("[Auth] Auto-link: jamaah linked to different user_id:", jamaahUserId);
+              }
+            } else {
+              console.log("[Auth] Auto-link: no jamaah found with email =", profileEmail);
+            }
+          } catch (e) {
+            console.warn("[Auth] Auto-link exception:", e);
+          }
+        }
       } catch (e) {
         console.error("[Auth] loadRole exception:", e);
         setRole(null);

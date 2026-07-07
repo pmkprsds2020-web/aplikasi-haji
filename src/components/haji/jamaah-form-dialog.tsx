@@ -33,7 +33,7 @@ export function JamaahFormDialog({ open, onOpenChange, onSaved, initial }: Props
           ? {
               nama: initial.nama, nik: initial.nik, kloter: initial.kloter, porsi: initial.porsi,
               usia: String(initial.usia), kelamin: initial.kelamin, alamat: initial.alamat,
-              hp: initial.hp, kontakKeluarga: initial.kontakKeluarga, email: (initial as Record<string, unknown>).email as string ?? "",
+              hp: initial.hp, kontakKeluarga: initial.kontakKeluarga, email: initial.email ?? "",
               tanggalTiba: initial.tanggalTiba.slice(0, 10),
               bandara: initial.bandara, kabupatenKota: initial.kabupatenKota,
               puskesmas: initial.puskesmas, dokterKeluarga: initial.dokterKeluarga,

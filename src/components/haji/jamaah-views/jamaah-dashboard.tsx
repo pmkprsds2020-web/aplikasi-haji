@@ -102,17 +102,65 @@ export function JamaahDashboard() {
   React.useEffect(() => {
     let mounted = true;
     async function load() {
-      if (!user?.id) return;
+      if (!user?.id) {
+        console.log("[JamaahDashboard] No user.id — not logged in");
+        return;
+      }
       setLoading(true);
-      // 1. Fetch jamaah by user_id
+      console.log("[JamaahDashboard] Loading data for user_id:", user.id);
+      console.log("[JamaahDashboard] user.email:", user.email);
+
+      // 1. Fetch jamaah by user_id (= auth.uid())
       const { data: jRow, error: jErr } = await supabase
         .from("jamaah")
         .select("*")
         .eq("user_id", user.id)
         .maybeSingle();
-      if (jErr) { console.error(jErr); toast.error(jErr.message); setLoading(false); return; }
-      if (!jRow) { if (mounted) setJamaah(null); setLoading(false); return; }
+
+      console.log("[JamaahDashboard] jamaah query result:", jRow, "error:", jErr);
+
+      if (jErr) { console.error("[JamaahDashboard] query error:", jErr); toast.error(jErr.message); setLoading(false); return; }
+      if (!jRow) {
+        console.warn("[JamaahDashboard] No jamaah record found for user_id =", user.id);
+        console.log("[JamaahDashboard] This means the jamaah record's user_id is not set.");
+        console.log("[JamaahDashboard] The auto-link in auth context should have set it.");
+        console.log("[JamaahDashboard] Trying fallback: search by email =", user.email);
+
+        // Fallback: try to find jamaah by email and auto-link
+        if (user.email) {
+          const { data: jByEmail, error: eErr } = await supabase
+            .from("jamaah")
+            .select("*")
+            .eq("email", user.email)
+            .maybeSingle();
+          console.log("[JamaahDashboard] fallback by email result:", jByEmail, "error:", eErr);
+
+          if (jByEmail && !eErr) {
+            // Found by email — link user_id now
+            console.log("[JamaahDashboard] Found jamaah by email! Linking user_id...");
+            const jId = (jByEmail as Record<string, unknown>).id as string;
+            const { error: linkErr } = await supabase
+              .from("jamaah")
+              .update({ user_id: user.id })
+              .eq("id", jId);
+            if (linkErr) {
+              console.error("[JamaahDashboard] Failed to link user_id:", linkErr.message);
+            } else {
+              console.log("[JamaahDashboard] user_id linked successfully!");
+            }
+            // Use the found record
+            if (mounted) setJamaah(jByEmail as JamaahRow);
+            setLoading(false);
+            return;
+          }
+        }
+
+        if (mounted) setJamaah(null);
+        setLoading(false);
+        return;
+      }
       const j = jRow as JamaahRow;
+      console.log("[JamaahDashboard] jamaah found:", j.nama, "| email:", (j as Record<string, unknown>).email);
       if (!mounted) return;
       setJamaah(j);
 

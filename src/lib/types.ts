@@ -28,6 +28,7 @@ export interface JamaahData {
   kelamin: "L" | "P";
   alamat: string;
   hp: string;
+  email?: string | null;
   kontakKeluarga: string;
   tanggalTiba: string; // ISO
   bandara: string;
