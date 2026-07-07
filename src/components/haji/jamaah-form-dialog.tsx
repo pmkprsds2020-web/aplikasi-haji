@@ -59,11 +59,13 @@ export function JamaahFormDialog({ open, onOpenChange, onSaved, initial }: Props
     try {
       const { createClient } = await import("@/lib/supabase/client");
       const supabase = createClient();
+
+      // ===== Jamaica payload: email is stored in jamaah table (for auth linking) =====
       const payload = {
         nama: f.nama, nik: f.nik, kloter: f.kloter, porsi: f.porsi,
         usia: Number(f.usia), kelamin: f.kelamin,
         alamat: f.alamat ?? "", hp: f.hp ?? "",
-        email: f.email ?? null,
+        email: f.email?.trim() || null,
         kontak_keluarga: f.kontakKeluarga ?? "",
         tanggal_tiba: f.tanggalTiba ? new Date(f.tanggalTiba).toISOString() : new Date().toISOString(),
         bandara: f.bandara ?? "", kabupaten_kota: f.kabupatenKota ?? "",
@@ -77,46 +79,33 @@ export function JamaahFormDialog({ open, onOpenChange, onSaved, initial }: Props
         tanggal_berangkat: f.tanggalBerangkat ? new Date(f.tanggalBerangkat).toISOString() : null,
         tanggal_pulang: f.tanggalPulang ? new Date(f.tanggalPulang).toISOString() : null,
       };
-      console.log("Saving Jamaah to Supabase...");
-      console.log("Payload:", payload);
+      console.log("[JamaahForm] Saving jamaah to Supabase (no email in payload)...");
       let resData: Record<string, unknown> | null = null;
-      let error: unknown = null;
+      let error: { code?: string; message?: string } | null = null;
       if (isEdit && initial) {
         const r = await supabase.from("jamaah").update(payload).eq("id", initial.id).select("*").single();
-        resData = r.data; error = r.error;
+        resData = r.data as Record<string, unknown> | null; error = r.error as { code?: string; message?: string } | null;
       } else {
         const r = await supabase.from("jamaah").insert(payload).select("*").single();
-        resData = r.data; error = r.error;
-      }
-      console.log("Supabase Response:", resData);
-      console.log("Supabase Error:", error);
-
-      // If the error is about 'email' column not existing (PGRST204),
-      // retry without the email field — the column hasn't been added to Supabase yet.
-      if (error && (error as { code?: string }).code === "PGRST204") {
-        const errCode = (error as { code?: string }).code;
-        const errMsg = (error as { message?: string }).message ?? "";
-        if (errMsg.includes("email")) {
-          console.warn("[JamaahForm] 'email' column not found — retrying without email field. Run supabase/ADD-EMAIL-COLUMN.sql to add it.");
-          const payloadWithoutEmail = { ...payload };
-          delete (payloadWithoutEmail as Record<string, unknown>).email;
-          if (isEdit && initial) {
-            const r2 = await supabase.from("jamaah").update(payloadWithoutEmail).eq("id", initial.id).select("*").single();
-            resData = r2.data; error = r2.error;
-          } else {
-            const r2 = await supabase.from("jamaah").insert(payloadWithoutEmail).select("*").single();
-            resData = r2.data; error = r2.error;
-          }
-          console.log("[JamaahForm] Retry response:", resData, "error:", error);
-        }
+        resData = r.data as Record<string, unknown> | null; error = r.error as { code?: string; message?: string } | null;
       }
 
       if (error) {
         console.error("[JamaahForm] save failed:", error);
-        const errMsg = (error as { message?: string }).message ?? String(error);
+        const errMsg = error.message ?? String(error);
         toast.error(`Gagal menyimpan: ${errMsg}`);
         return;
       }
+
+      // Email is saved in the jamaah table directly (via the payload above).
+      // When a jamaah registers with this email, the auth context will:
+      //   1. Search jamaah by email → find this record
+      //   2. Set jamaah.user_id = auth.uid()
+      //   3. Link the account automatically
+      if (f.email?.trim()) {
+        console.log("[JamaahForm] Email saved to jamaah table. Jamaah will be auto-linked when they register with:", f.email);
+      }
+
       toast.success(isEdit ? "Data jamaah diperbarui di Supabase" : "Jamaah baru ditambahkan ke Supabase");
       onSaved(resData as unknown as { id: string; nama: string; riskLevel: string; riskSummary: string });
       onOpenChange(false);

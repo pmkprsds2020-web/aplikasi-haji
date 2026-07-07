@@ -146,26 +146,23 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
       });
       if (error) return { error: error.message };
 
-      // Step 2: If role is jamaah, link auth.uid() to existing jamaah record by email
+      // Step 2: If role is jamaah, link auth.uid() to existing jamaah record
+      // Architecture: auth.users → profiles (id = auth.uid()) → jamaah (user_id = auth.uid(), email = ...)
+      // The handle_new_user trigger auto-creates a profiles row on signup.
+      // We search jamaah by email — if a dokter previously created a jamaah record
+      // with this email, we link auth.uid() to jamaah.user_id.
       if (role === "jamaah" && data.user) {
         try {
-          console.log("[Auth] Linking jamaah account: searching for email =", email);
-          // Try querying with email column first
-          const { data: existingJamaah, error: linkErr } = await supabase
+          console.log("[Auth] Jamaah signup — searching jamaah by email:", email);
+          const { data: existingJamaah, error: searchErr } = await supabase
             .from("jamaah")
-            .select("id, nama, user_id")
+            .select("id, nama, email, user_id")
             .eq("email", email)
             .maybeSingle();
 
-          if (linkErr) {
-            // PGRST204 = column 'email' doesn't exist in jamaah table yet
-            // The user needs to run supabase/ADD-EMAIL-COLUMN.sql
-            if ((linkErr as { code?: string }).code === "PGRST204") {
-              console.warn("[Auth] 'email' column not found in jamaah table. Run supabase/ADD-EMAIL-COLUMN.sql to enable jamaah account linking.");
-            } else {
-              console.warn("[Auth] Error finding jamaah by email:", linkErr.message);
-            }
-            // Non-fatal — account is still created, just not linked yet
+          if (searchErr) {
+            console.warn("[Auth] Error searching jamaah by email:", searchErr.message);
+            // Could be PGRST204 if email column doesn't exist yet — non-fatal
           } else if (existingJamaah) {
             // Found existing jamaah record — link auth.uid() to user_id
             console.log("[Auth] Found existing jamaah:", (existingJamaah as Record<string, unknown>).nama, "— linking user_id");
@@ -175,12 +172,13 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
               .update({ user_id: data.user.id })
               .eq("id", jamaahId);
             if (updateErr) {
-              console.warn("[Auth] Failed to link user_id:", updateErr.message);
+              console.warn("[Auth] Failed to link user_id to jamaah:", updateErr.message);
             } else {
               console.log("[Auth] Jamaah account linked successfully! user_id =", data.user.id);
             }
           } else {
-            console.log("[Auth] No existing jamaah found with email =", email, "— account not linked yet. Ask a dokter to create your jamaah record first.");
+            console.log("[Auth] No existing jamaah found with email =", email);
+            console.log("[Auth] Jamaah can still use the app — a dokter can create their record later.");
           }
         } catch (e) {
           console.warn("[Auth] Jamaah linking exception:", e);
