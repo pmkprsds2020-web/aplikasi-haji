@@ -57,18 +57,10 @@ export function SkriningFormDialog({ jamaahId, open, onOpenChange, onSent, initi
     }
     setSending(true);
     try {
-      // Build form fields based on screening type
-      // These are the fields the jamaah will fill in the InteractiveFormCard
-      const formFields: Array<{ key: string; label: string; type: string; required?: boolean; placeholder?: string }> = [];
-
-      // Generic screening fields — the jamaah fills these basic questions
-      // The actual screening form (Barthel, PHQ-9, etc.) is opened via the subType
-      formFields.push(
-        { key: "keluhan", label: "Keluhan utama saat ini", type: "textarea", required: false, placeholder: "Jelaskan keluhan Anda..." },
-        { key: "durasi", label: "Berapa lama keluhan dirasakan?", type: "text", required: false, placeholder: "Contoh: 3 hari" },
-        { key: "skor", label: "Skor (jika sudah dihitung)", type: "number", required: false, placeholder: "0-100" },
-        { key: "catatan", label: "Catatan tambahan untuk dokter", type: "textarea", required: false, placeholder: "Catatan..." },
-      );
+      // Generate form fields matching the screening dialog used in Pra/Pasca Haji
+      const { getScreeningFormFields } = await import("@/lib/screening-form-fields");
+      const formFields = getScreeningFormFields(selected.jenis);
+      console.log("[SkriningFormDialog] Sending form fields for", selected.jenis, ":", formFields.length, "fields");
 
       const res = await fetch(`/api/telemedicine/rooms/${jamaahId}/request`, {
         method: "POST",
