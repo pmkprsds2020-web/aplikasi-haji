@@ -142,39 +142,67 @@ export function JamaahChat() {
       console.log("[JamaahChat] jamaah_id:", jamaahRec.id, "| doctor_id:", jamaahRec.doctor_id, "| dokter_keluarga:", jamaahRec.dokter_keluarga);
 
       // ===== AUTO-ASSIGN doctor_id if null =====
-      // If doctor_id is null, try to find a dokter to assign.
-      // Strategy: Find any dokter profile and assign them as the responsible doctor.
+      // Strategy (in order):
+      // 1. Match dokter_keluarga name to profiles.full_name (role='dokter')
+      // 2. If no name match, assign the first available dokter
       if (!jamaahRec.doctor_id) {
         console.log("[JamaahChat] doctor_id is null — auto-assigning...");
 
-        // Try to find a dokter profile
-        const { data: dokterProfile, error: dokterErr } = await supabase
-          .from("profiles")
-          .select("id, full_name, email")
-          .eq("role", "dokter")
-          .limit(1)
-          .maybeSingle();
+        let assignedDoctorId: string | null = null;
 
-        console.log("[JamaahChat] dokter search result:", dokterProfile, "error:", dokterErr);
+        // Strategy 1: Try to match dokter_keluarga name to a dokter profile
+        if (jamaahRec.dokter_keluarga && jamaahRec.dokter_keluarga.trim()) {
+          console.log("[JamaahChat] Trying name match: dokter_keluarga =", jamaahRec.dokter_keluarga);
+          const { data: nameMatch, error: nameErr } = await supabase
+            .from("profiles")
+            .select("id, full_name, email")
+            .eq("role", "dokter")
+            .ilike("full_name", `%${jamaahRec.dokter_keluarga.trim()}%`)
+            .limit(1)
+            .maybeSingle();
 
-        if (dokterProfile && !dokterErr) {
-          const newDoctorId = (dokterProfile as Record<string, unknown>).id as string;
-          console.log("[JamaahChat] Auto-assigning doctor_id =", newDoctorId);
+          console.log("[JamaahChat] name match result:", nameMatch, "error:", nameErr);
 
-          // Update jamaah with the found doctor_id
+          if (nameMatch && !nameErr) {
+            assignedDoctorId = (nameMatch as Record<string, unknown>).id as string;
+            console.log("[JamaahChat] Name match found! doctor_id =", assignedDoctorId);
+          }
+        }
+
+        // Strategy 2: If no name match, assign the first available dokter
+        if (!assignedDoctorId) {
+          console.log("[JamaahChat] No name match — finding any available dokter...");
+          const { data: anyDokter, error: dokterErr } = await supabase
+            .from("profiles")
+            .select("id, full_name, email")
+            .eq("role", "dokter")
+            .limit(1)
+            .maybeSingle();
+
+          console.log("[JamaahChat] any dokter result:", anyDokter, "error:", dokterErr);
+
+          if (anyDokter && !dokterErr) {
+            assignedDoctorId = (anyDokter as Record<string, unknown>).id as string;
+            console.log("[JamaahChat] Found dokter. doctor_id =", assignedDoctorId);
+          }
+        }
+
+        // If we found a doctor, update jamaah
+        if (assignedDoctorId) {
+          console.log("[JamaahChat] Updating jamaah.doctor_id =", assignedDoctorId);
           const { error: updateErr } = await supabase
             .from("jamaah")
-            .update({ doctor_id: newDoctorId })
+            .update({ doctor_id: assignedDoctorId })
             .eq("id", jamaahRec.id);
 
           if (updateErr) {
             console.warn("[JamaahChat] Failed to auto-assign doctor_id:", updateErr.message);
           } else {
             console.log("[JamaahChat] doctor_id auto-assigned successfully!");
-            jamaahRec = { ...jamaahRec, doctor_id: newDoctorId };
+            jamaahRec = { ...jamaahRec, doctor_id: assignedDoctorId };
           }
         } else {
-          console.warn("[JamaahChat] No dokter found in profiles table");
+          console.warn("[JamaahChat] No dokter found in profiles table at all");
         }
       }
 

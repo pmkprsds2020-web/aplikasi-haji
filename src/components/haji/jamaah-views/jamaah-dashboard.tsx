@@ -164,27 +164,52 @@ export function JamaahDashboard() {
       if (!mounted) return;
 
       // ===== AUTO-ASSIGN doctor_id if null =====
+      // Strategy: 1) Match dokter_keluarga name → 2) Any available dokter
       if (!j.doctor_id) {
         console.log("[JamaahDashboard] doctor_id is null — auto-assigning...");
-        const { data: dokterProfile, error: dokterErr } = await supabase
-          .from("profiles")
-          .select("id, full_name, email")
-          .eq("role", "dokter")
-          .limit(1)
-          .maybeSingle();
-        console.log("[JamaahDashboard] dokter search:", dokterProfile, "error:", dokterErr);
-        if (dokterProfile && !dokterErr) {
-          const newDoctorId = (dokterProfile as Record<string, unknown>).id as string;
-          console.log("[JamaahDashboard] Auto-assigning doctor_id =", newDoctorId);
+        const dokterKeluarga = (j as Record<string, unknown>).dokter_keluarga as string | null;
+        let assignedDoctorId: string | null = null;
+
+        // Strategy 1: Name match
+        if (dokterKeluarga && dokterKeluarga.trim()) {
+          console.log("[JamaahDashboard] Trying name match:", dokterKeluarga);
+          const { data: nameMatch } = await supabase
+            .from("profiles")
+            .select("id, full_name, email")
+            .eq("role", "dokter")
+            .ilike("full_name", `%${dokterKeluarga.trim()}%`)
+            .limit(1)
+            .maybeSingle();
+          if (nameMatch) {
+            assignedDoctorId = (nameMatch as Record<string, unknown>).id as string;
+            console.log("[JamaahDashboard] Name match found! doctor_id =", assignedDoctorId);
+          }
+        }
+
+        // Strategy 2: Any dokter
+        if (!assignedDoctorId) {
+          const { data: anyDokter } = await supabase
+            .from("profiles")
+            .select("id, full_name, email")
+            .eq("role", "dokter")
+            .limit(1)
+            .maybeSingle();
+          if (anyDokter) {
+            assignedDoctorId = (anyDokter as Record<string, unknown>).id as string;
+            console.log("[JamaahDashboard] Found dokter. doctor_id =", assignedDoctorId);
+          }
+        }
+
+        if (assignedDoctorId) {
           const { error: updateErr } = await supabase
             .from("jamaah")
-            .update({ doctor_id: newDoctorId })
+            .update({ doctor_id: assignedDoctorId })
             .eq("id", j.id);
           if (updateErr) {
             console.warn("[JamaahDashboard] Failed to auto-assign doctor_id:", updateErr.message);
           } else {
             console.log("[JamaahDashboard] doctor_id auto-assigned!");
-            (j as Record<string, unknown>).doctor_id = newDoctorId;
+            (j as Record<string, unknown>).doctor_id = assignedDoctorId;
           }
         }
       }
