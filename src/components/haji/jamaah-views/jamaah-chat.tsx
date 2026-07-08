@@ -723,9 +723,19 @@ function MessageBubble({ m }: { m: ChatMessageRow }) {
     m.type === "EDUKASI" || m.type === "OBAT" || m.type === "MONITORING" ||
     m.type === "TTV_RESULT" || m.type === "SKRINING_RESULT";
 
+  // ===== Debug logging =====
+  console.log("[JamaahChat] MessageBubble:", {
+    id: m.id,
+    type: m.type,
+    request_id: m.request_id,
+    isFormRequest,
+    hasRequestId: !!m.request_id,
+    content: m.content?.substring(0, 50),
+  });
+
   // ===== Render InteractiveFormCard for request-type messages =====
   if (isFormRequest && m.request_id) {
-    console.log("[JamaahChat] Rendering InteractiveFormCard: type=", m.type, "| requestId=", m.request_id, "| status=");
+    console.log("[JamaahChat] ✓ Rendering InteractiveFormCard: type=", m.type, "| requestId=", m.request_id);
     return (
       <InteractiveFormCard
         messageId={m.id}
@@ -736,6 +746,20 @@ function MessageBubble({ m }: { m: ChatMessageRow }) {
         createdAt={m.created_at}
         isJamaah={true}
       />
+    );
+  }
+
+  // ===== Fallback: if isFormRequest but no request_id, show a notice =====
+  if (isFormRequest && !m.request_id) {
+    console.warn("[JamaahChat] ⚠ Form request message has no request_id! type=", m.type, "| content=", m.content);
+    return (
+      <div className={cn("flex", "justify-start")}>
+        <div className="max-w-[80%] rounded-2xl rounded-bl-sm border border-amber-200 bg-amber-50 px-4 py-2.5 shadow-sm dark:border-amber-900 dark:bg-amber-950/40">
+          <p className="text-sm font-medium text-amber-700 dark:text-amber-300">📋 {m.content}</p>
+          <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">Form belum dapat dibuka (request_id tidak ditemukan)</p>
+          <span className="mt-1 block text-xs text-muted-foreground">{time}</span>
+        </div>
+      </div>
     );
   }
 

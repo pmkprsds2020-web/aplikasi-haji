@@ -52,8 +52,12 @@ export function EdukasiFormDialog({ jamaahId, open, onOpenChange, onSent }: Eduk
 
       const title = `Edukasi: ${EDUKASI_TOPICS.find((t) => t.value === topic)?.label ?? topic}`;
 
-      // ===== 2. Insert telemedicine_request =====
+      // ===== 2. Insert telemedicine_request with form fields =====
       const supabase = createClient();
+      const eduFields = [
+        { key: "dipahami", label: "Saya telah memahami materi edukasi ini", type: "yesno", required: true },
+        { key: "pertanyaan", label: "Pertanyaan untuk dokter (opsional)", type: "textarea", required: false, placeholder: "Tuliskan pertanyaan..." },
+      ];
       const { data: newReq, error: reqErr } = await supabase
         .from("telemedicine_request")
         .insert({
@@ -62,7 +66,7 @@ export function EdukasiFormDialog({ jamaahId, open, onOpenChange, onSent }: Eduk
           category: "EDUKASI",
           sub_type: topic,
           title,
-          fields: JSON.stringify([]),
+          fields: JSON.stringify(eduFields),
           status: "PENDING",
         })
         .select("*")
@@ -161,8 +165,12 @@ export function ObatFormDialog({ jamaahId, open, onOpenChange, onSent }: ObatPro
         throw new Error(roomErr || "Gagal membuat room telemedicine");
       }
 
-      // ===== 2. Insert telemedicine_request =====
+      // ===== 2. Insert telemedicine_request with form fields =====
       const supabase = createClient();
+      const obatFields = [
+        { key: "dipatuhi", label: "Saya mengerti dan akan mematuhi instruksi obat ini", type: "yesno", required: true },
+        { key: "efeksamping", label: "Apakah ada efek samping yang dirasakan?", type: "textarea", required: false, placeholder: "Jelaskan efek samping jika ada..." },
+      ];
       const { data: newReq, error: reqErr } = await supabase
         .from("telemedicine_request")
         .insert({
@@ -171,7 +179,7 @@ export function ObatFormDialog({ jamaahId, open, onOpenChange, onSent }: ObatPro
           category: "OBAT",
           sub_type: "OBAT",
           title: "Instruksi Pengobatan",
-          fields: JSON.stringify([]),
+          fields: JSON.stringify(obatFields),
           status: "PENDING",
         })
         .select("*")
