@@ -328,19 +328,25 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
   // ===== Send text via Supabase INSERT =====
   async function sendText(content?: string) {
     const text = (content ?? input).trim();
-    if (!text) return;
+    if (!text) return; // prevent empty/whitespace-only messages
     // ===== Null-ID validation: silent return (no error toast) =====
     if (!jamaahId) return;
     stopTyping();
+
+    // Clear input IMMEDIATELY (before async) so user sees it empty
+    const savedInput = input;
+    setInput("");
+
     const inserted = await supabaseSend({
       senderType: "DOCTOR",
       type: "TEXT",
       content: text,
     });
     if (inserted) {
-      setInput("");
       toast.success("Pesan terkirim");
     } else {
+      // Restore input on failure so user doesn't lose their message
+      setInput(savedInput);
       toast.error("Gagal mengirim pesan");
     }
   }

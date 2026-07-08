@@ -424,13 +424,18 @@ export function JamaahChat() {
   // ===== Send a TEXT message =====
   async function sendText(content?: string) {
     const text = (content ?? input).trim();
-    if (!text) return;
+    if (!text) return; // prevent empty/whitespace-only messages
     if (!roomId || !jamaah) {
       toast.error("Ruang chat belum siap");
       return;
     }
     console.log("[JamaahChat] sendText:", { room_id: roomId, content: text, sender: jamaah.nama });
+
+    // Clear input IMMEDIATELY (before async) so user sees it empty
+    const savedInput = input;
+    setInput("");
     setSending(true);
+
     try {
       const insertPayload = {
         room_id: roomId,
@@ -449,18 +454,15 @@ export function JamaahChat() {
 
       console.log("[JamaahChat] insert result data:", insData, "error:", insErr);
       if (insErr) {
+        // Restore input on failure so user doesn't lose their message
+        setInput(savedInput);
         const pgError = insErr.message || String(insErr);
         const pgCode = (insErr as { code?: string }).code ?? "";
-        const pgDetails = (insErr as { details?: string }).details ?? "";
-        const pgHint = (insErr as { hint?: string }).hint ?? "";
-        console.error("[JamaahChat] INSERT failed:", pgCode, pgError, pgDetails, pgHint);
-        toast.error("Gagal mengirim pesan", {
-          description: `[${pgCode}] ${pgError}${pgDetails ? ` · ${pgDetails}` : ""}${pgHint ? ` · ${pgHint}` : ""}`,
-        });
+        console.error("[JamaahChat] INSERT failed:", pgCode, pgError);
+        toast.error("Gagal mengirim pesan", { description: `[${pgCode}] ${pgError}` });
         return;
       }
       console.log("[JamaahChat] ✓ message inserted, refreshing");
-      setInput("");
       // Update room last_message_at (fire-and-forget)
       const { error: updErr } = await supabase
         .from("chat_room")
@@ -479,10 +481,10 @@ export function JamaahChat() {
       }
       toast.success("Pesan terkirim");
     } catch (err) {
+      // Restore input on exception
+      setInput(savedInput);
       console.error("[JamaahChat] sendText exception:", err);
-      toast.error("Terjadi kesalahan", {
-        description: err instanceof Error ? err.message : String(err),
-      });
+      toast.error("Terjadi kesalahan", { description: err instanceof Error ? err.message : String(err) });
     } finally {
       setSending(false);
     }
