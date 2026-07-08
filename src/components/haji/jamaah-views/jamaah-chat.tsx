@@ -13,6 +13,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
 import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { InteractiveFormCard } from "../telemedicine/interactive-form-card";
 
 // ============================================================================
 // JamaahChat — simplified telemedicine chat for the patient (jamaah).
@@ -713,6 +714,28 @@ function MessageBubble({ m }: { m: ChatMessageRow }) {
     hour: "2-digit",
     minute: "2-digit",
   });
+
+  // ===== Check if this is a form request message =====
+  const isFormRequest =
+    m.type === "TTV_REQUEST" || m.type === "SKRINING_REQUEST" ||
+    m.type === "EDUKASI" || m.type === "OBAT" || m.type === "MONITORING" ||
+    m.type === "TTV_RESULT" || m.type === "SKRINING_RESULT";
+
+  // ===== Render InteractiveFormCard for request-type messages =====
+  if (isFormRequest && m.request_id) {
+    console.log("[JamaahChat] Rendering InteractiveFormCard: type=", m.type, "| requestId=", m.request_id, "| status=");
+    return (
+      <InteractiveFormCard
+        messageId={m.id}
+        requestId={m.request_id}
+        messageType={m.type}
+        content={m.content}
+        senderType={m.sender_type}
+        createdAt={m.created_at}
+        isJamaah={true}
+      />
+    );
+  }
 
   // ===== System / AI: centered muted =====
   if (isSystem) {
