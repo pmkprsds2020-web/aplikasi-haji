@@ -1,0 +1,751 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import {
+     5→  ArrowLeft, Send, Smile, Paperclip, Loader2, Stethoscope,
+     6→  Check, CheckCheck, ImageIcon, FileText, File as FileIcon,
+     7→  AlertCircle, AlertTriangle, type LucideIcon,
+     8→} from "lucide-react";
+     9→import { Button } from "@/components/ui/button";
+    10→import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+    11→import { toast } from "sonner";
+    12→import { createClient } from "@/lib/supabase/client";
+    13→import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
+    14→import { useApp } from "@/lib/store";
+    15→import { cn } from "@/lib/utils";
+    16→
+    17→// ============================================================================
+    18→// JamaahChat — simplified telemedicine chat for the patient (jamaah).
+    19→// ----------------------------------------------------------------------------
+    20→// Unlike the doctor's ConversationPanel, this view shows ONLY the jamaah's
+    21→// assigned doctor. It is self-contained (does NOT use useSupabaseChat hook)
+    22→// because the existing hook sets doctor_id = user.id which would be wrong for
+    23→// a jamaah (jamaah is not a doctor).
+    24→//
+    25→// Flow:
+    26→//   1. Fetch jamaah record by user_id → get (id, nama, doctor_id)
+    27→//   2. If doctor_id is null → show "no doctor assigned" state
+    28→//   3. Fetch doctor's profile (full_name, email, phone)
+    29→//   4. Ensure chat_room exists for jamaah_id with doctor_id = assigned doctor
+    30→//      (SELECT by jamaah_id → INSERT if missing → UPDATE if doctor_id mismatch)
+    31→//   5. Fetch all messages for room_id ordered by created_at ASC
+    32→//   6. Subscribe to Supabase Realtime INSERT events on chat_message
+    33→//   7. Send via INSERT (sender_type = 'JAMAAH')
+    34→//   8. Mark inbound DOCTOR messages as read_by_jamaah = true on view
+    35→// ============================================================================
+    36→
+    37→interface ChatMessageRow {
+    38→  id: string;
+    39→  room_id: string;
+    40→  sender_type: "DOCTOR" | "JAMAAH" | "SYSTEM" | "AI";
+    41→  sender_name: string | null;
+    42→  type: string;
+    43→  content: string;
+    44→  attachment_url: string | null;
+    45→  attachment_name: string | null;
+    46→  request_id: string | null;
+    47→  read_by_doctor: boolean;
+    48→  read_by_jamaah: boolean;
+    49→  created_at: string;
+    50→}
+    51→
+    52→interface DoctorProfile {
+    53→  id: string;
+    54→  full_name: string | null;
+    55→  email: string | null;
+    56→  phone: string | null;
+    57→}
+    58→
+    59→interface JamaahRecord {
+    60→  id: string;
+    61→  nama: string;
+    62→  doctor_id: string | null;
+    63→}
+    64→
+    65→const COMMON_EMOJIS = [
+    66→  "👍", "❤️", "🙏", "😊", "😢", "👌", "✅", "⏰",
+    67→  "💊", "🩺", "📞", "🔴", "🟡", "🟢", "💡", "🌡️",
+    68→];
+    69→
+    70→const ATTACH_OPTIONS: { key: string; label: string; icon: LucideIcon }[] = [
+    71→  { key: "IMAGE", label: "Foto", icon: ImageIcon },
+    72→  { key: "PDF", label: "PDF", icon: FileText },
+    73→  { key: "FILE", label: "File", icon: FileIcon },
+    74→];
+    75→
+    76→export function JamaahChat() {
+    77→  const supabase = React.useMemo(() => createClient(), []);
+    78→  const { user } = useSupabaseAuth();
+    79→  const { goJamaahDashboard } = useApp();
+    80→
+    81→  // ===== State =====
+    82→  const [jamaah, setJamaah] = React.useState<JamaahRecord | null>(null);
+    83→  const [doctor, setDoctor] = React.useState<DoctorProfile | null>(null);
+    84→  const [roomId, setRoomId] = React.useState<string | null>(null);
+    85→  const [messages, setMessages] = React.useState<ChatMessageRow[]>([]);
+    86→  const [loading, setLoading] = React.useState(true);
+    87→  const [sending, setSending] = React.useState(false);
+    88→  const [noDoctor, setNoDoctor] = React.useState(false);
+    89→  const [loadError, setLoadError] = React.useState<string | null>(null);
+    90→
+    91→  const [input, setInput] = React.useState("");
+    92→  const [emojiOpen, setEmojiOpen] = React.useState(false);
+    93→  const [attachOpen, setAttachOpen] = React.useState(false);
+    94→
+    95→  const scrollRef = React.useRef<HTMLDivElement>(null);
+    96→
+    97→  // ===== 1. On mount: fetch jamaah record by user_id =====
+    98→  React.useEffect(() => {
+    99→    let active = true;
+   100→    async function bootstrap() {
+   101→      if (!user) {
+   102→        setLoading(false);
+   103→        return;
+   104→      }
+   105→      const { data: jData, error: jErr } = await supabase
+   106→        .from("jamaah")
+   107→        .select("id, nama, doctor_id")
+   108→        .eq("user_id", user.id)
+   109→        .maybeSingle();
+   110→
+   111→
+   112→      if (!active) return;
+   113→      if (jErr) {
+   114→        const pgError = jErr.message || String(jErr);
+   115→        const pgCode = (jErr as { code?: string }).code ?? "";
+   116→        console.error("[JamaahChat] fetch jamaah failed:", pgCode, pgError);
+   117→        setLoadError(`Gagal memuat data jamaah. [${pgCode}] ${pgError}`);
+   118→        toast.error(`Gagal memuat data jamaah`, { description: `[${pgCode}] ${pgError}` });
+   119→        setLoading(false);
+   120→        return;
+   121→      }
+   122→      if (!jData) {
+   123→        console.error("[JamaahChat] No jamaah record found for user_id");
+   124→        setLoadError("Data jamaah tidak ditemukan. Hubungi Puskesmas untuk pendaftaran.");
+   125→        toast.error("Data jamaah tidak ditemukan");
+   126→        setLoading(false);
+   127→        return;
+   128→      }
+   129→      const jamaahRec: JamaahRecord = {
+   130→        id: jData.id,
+   131→        nama: jData.nama,
+   132→        doctor_id: jData.doctor_id,
+   133→      };
+   134→      setJamaah(jamaahRec);
+   135→
+   136→      if (!jamaahRec.doctor_id) {
+   137→        setNoDoctor(true);
+   138→        setLoading(false);
+   139→        return;
+   140→      }
+   141→
+   142→      // ===== 2. Fetch doctor's profile =====
+   143→      const { data: dData, error: dErr } = await supabase
+   144→        .from("profiles")
+   145→        .select("id, full_name, email, phone")
+   146→        .eq("id", jamaahRec.doctor_id)
+   147→        .maybeSingle();
+   148→
+   149→      if (!active) return;
+   150→      if (dErr) {
+   151→        const pgError = dErr.message || String(dErr);
+   152→        const pgCode = (dErr as { code?: string }).code ?? "";
+   153→        console.error("[JamaahChat] fetch doctor profile failed:", pgCode, pgError);
+   154→        toast.error(`Gagal memuat profil dokter`, { description: `[${pgCode}] ${pgError}` });
+   155→        // Non-fatal: still try to open chat
+   156→      }
+   157→      if (dData) {
+   158→        setDoctor({
+   159→          id: dData.id,
+   160→          full_name: dData.full_name,
+   161→          email: dData.email,
+   162→          phone: dData.phone,
+   163→        });
+   164→      }
+   165→    }
+   166→    void bootstrap();
+   167→    return () => {
+   168→      active = false;
+   169→    };
+   170→  }, [supabase, user]);
+   171→
+   172→  // ===== 3. Ensure chat_room exists + fetch messages + subscribe Realtime =====
+   173→  React.useEffect(() => {
+   174→    let active = true;
+   175→    let channel: ReturnType<typeof supabase.channel> | null = null;
+   176→
+   177→    async function setupChat() {
+   178→      if (!user || !jamaah || !jamaah.doctor_id) return;
+   179→
+   180→      // --- SELECT existing room by jamaah_id ---
+   181→      const { data: roomData, error: roomErr } = await supabase
+   182→        .from("chat_room")
+   183→        .select("id, doctor_id")
+   184→        .eq("jamaah_id", jamaah.id)
+   185→        .maybeSingle();
+   186→
+   187→      if (!active) return;
+   188→
+   189→      if (roomErr) {
+   190→        const pgError = roomErr.message || String(roomErr);
+   191→        const pgCode = (roomErr as { code?: string }).code ?? "";
+   192→        console.error("[JamaahChat] SELECT chat_room failed:", pgCode, pgError);
+   193→        toast.error("Gagal memuat ruang chat", { description: `[${pgCode}] ${pgError}` });
+   194→        setLoadError(`Gagal memuat ruang chat. [${pgCode}] ${pgError}`);
+   195→        setLoading(false);
+   196→        return;
+   197→      }
+   198→
+   199→      let rId: string;
+   200→
+   201→      if (roomData?.id) {
+   202→        rId = roomData.id;
+   203→        // Verify doctor_id matches the assigned doctor; update if mismatched
+   204→        if (roomData.doctor_id !== jamaah.doctor_id) {
+   205→          console.warn("[JamaahChat] doctor_id mismatch in chat_room. Updating to assigned doctor...");
+   206→          const { error: updErr } = await supabase
+   207→            .from("chat_room")
+   208→            .update({ doctor_id: jamaah.doctor_id })
+   209→            .eq("id", rId);
+   210→          if (updErr) {
+   211→            console.error("[JamaahChat] update doctor_id failed:", updErr.message);
+   212→          } else {
+   213→          }
+   214→        }
+   215→      } else {
+   216→        // --- INSERT new room with jamaah_id + assigned doctor_id ---
+   217→        const { data: newRoom, error: newRoomErr } = await supabase
+   218→          .from("chat_room")
+   219→          .insert({
+   220→            jamaah_id: jamaah.id,
+   221→            doctor_id: jamaah.doctor_id,
+   222→          })
+   223→          .select("id")
+   224→          .single();
+   225→
+   226→        if (!active) return;
+   227→        if (newRoomErr || !newRoom) {
+   228→          const pgError = newRoomErr?.message ?? String(newRoomErr);
+   229→          const pgCode = (newRoomErr as { code?: string } | null)?.code ?? "";
+   230→          console.error("[JamaahChat] INSERT chat_room failed:", pgCode, pgError);
+   231→          toast.error("Gagal membuat ruang chat", {
+   232→            description: `[${pgCode}] ${pgError}`,
+   233→          });
+   234→          setLoadError(`Gagal membuat ruang chat. [${pgCode}] ${pgError}`);
+   235→          setLoading(false);
+   236→          return;
+   237→        }
+   238→        rId = newRoom.id;
+   239→      }
+   240→
+   241→      setRoomId(rId);
+   242→
+   243→      // --- Fetch messages ---
+   244→      await fetchMessages(rId);
+   245→      if (!active) return;
+   246→      setLoading(false);
+   247→
+   248→      // --- Subscribe to Realtime INSERT events ---
+   249→      channel = supabase
+   250→        .channel(`jamaah_chat:${rId}`)
+   251→        .on(
+   252→          "postgres_changes",
+   253→          {
+   254→            event: "INSERT",
+   255→            schema: "public",
+   256→            table: "chat_message",
+   257→            filter: `room_id=eq.${rId}`,
+   258→          },
+   259→          (payload) => {
+   260→            const newMsg = payload.new as ChatMessageRow;
+   261→            setMessages((prev) => {
+   262→              if (prev.some((m) => m.id === newMsg.id)) return prev;
+   263→              return [...prev, newMsg];
+   264→            });
+   265→          }
+   266→        )
+   267→        .subscribe((status) => {
+   268→        });
+   269→    }
+   270→
+   271→    async function fetchMessages(rId: string) {
+   272→      const { data: msgData, error: msgErr } = await supabase
+   273→        .from("chat_message")
+   274→        .select("*")
+   275→        .eq("room_id", rId)
+   276→        .order("created_at", { ascending: true })
+   277→        .limit(200);
+   278→
+   279→      if (msgErr) {
+   280→        const pgError = msgErr.message || String(msgErr);
+   281→        const pgCode = (msgErr as { code?: string }).code ?? "";
+   282→        console.error("[JamaahChat] fetch messages failed:", pgCode, pgError);
+   283→        toast.error("Gagal memuat pesan", { description: `[${pgCode}] ${pgError}` });
+   284→        return;
+   285→      }
+   286→      const rows = (msgData ?? []) as ChatMessageRow[];
+   287→      setMessages(rows);
+   288→
+   289→      // --- Mark inbound DOCTOR/SYSTEM/AI messages as read by jamaah ---
+   290→      const unreadInbound = rows.filter(
+   291→        (m) => m.sender_type !== "JAMAAH" && !m.read_by_jamaah
+   292→      );
+   293→      if (unreadInbound.length > 0) {
+   294→        const { error: markErr } = await supabase
+   295→          .from("chat_message")
+   296→          .update({ read_by_jamaah: true })
+   297→          .eq("room_id", rId)
+   298→          .neq("sender_type", "JAMAAH")
+   299→          .eq("read_by_jamaah", false);
+   300→        if (markErr) {
+   301→          console.warn("[JamaahChat] mark read failed:", markErr.message);
+   302→        }
+   303→      }
+   304→
+   305→      // --- Reset unread_by_jamaah counter ---
+   306→      const { error: counterErr } = await supabase
+   307→        .from("chat_room")
+   308→        .update({ unread_by_jamaah: 0 })
+   309→        .eq("id", rId);
+   310→      if (counterErr) {
+   311→        console.warn("[JamaahChat] reset unread_by_jamaah failed:", counterErr.message);
+   312→      }
+   313→    }
+   314→
+   315→    void setupChat();
+   316→
+   317→    return () => {
+   318→      active = false;
+   319→      if (channel) supabase.removeChannel(channel);
+   320→    };
+   321→  }, [supabase, user, jamaah]);
+   322→
+   323→  // ===== Auto-scroll to bottom on new messages =====
+   324→  React.useEffect(() => {
+   325→    if (scrollRef.current) {
+   326→      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+   327→    }
+   328→  }, [messages.length]);
+   329→
+   330→  // ===== Send a TEXT message =====
+   331→  async function sendText(content?: string) {
+   332→    const text = (content ?? input).trim();
+   333→    if (!text) return;
+   334→    if (!roomId || !jamaah) {
+   335→      toast.error("Ruang chat belum siap");
+   336→      return;
+   337→    }
+   338→    setSending(true);
+   339→    try {
+   340→      const insertPayload = {
+   341→        room_id: roomId,
+   342→        sender_type: "JAMAAH" as const,
+   343→        sender_name: jamaah.nama,
+   344→        type: "TEXT",
+   345→        content: text,
+   346→        attachment_url: null,
+   347→        attachment_name: null,
+   348→        request_id: null,
+   349→      };
+   350→      const { data: insData, error: insErr } = await supabase
+   351→        .from("chat_message")
+   352→        .insert(insertPayload);
+   353→
+   354→      if (insErr) {
+   355→        const pgError = insErr.message || String(insErr);
+   356→        const pgCode = (insErr as { code?: string }).code ?? "";
+   357→        const pgDetails = (insErr as { details?: string }).details ?? "";
+   358→        const pgHint = (insErr as { hint?: string }).hint ?? "";
+   359→        console.error("[JamaahChat] INSERT failed:", pgCode, pgError, pgDetails, pgHint);
+   360→        toast.error("Gagal mengirim pesan", {
+   361→          description: `[${pgCode}] ${pgError}${pgDetails ? ` · ${pgDetails}` : ""}${pgHint ? ` · ${pgHint}` : ""}`,
+   362→        });
+   363→        return;
+   364→      }
+   365→      setInput("");
+   366→      // Update room last_message_at (fire-and-forget)
+   367→      const { error: updErr } = await supabase
+   368→        .from("chat_room")
+   369→        .update({ last_message_at: new Date().toISOString() })
+   370→        .eq("id", roomId);
+   371→      if (updErr) console.warn("[JamaahChat] last_message_at update failed:", updErr.message);
+   372→      // Refresh messages to confirm
+   373→      const { data: refresh, error: refErr } = await supabase
+   374→        .from("chat_message")
+   375→        .select("*")
+   376→        .eq("room_id", roomId)
+   377→        .order("created_at", { ascending: true })
+   378→        .limit(200);
+   379→      if (!refErr && refresh) {
+   380→        setMessages(refresh as ChatMessageRow[]);
+   381→      }
+   382→      toast.success("Pesan terkirim");
+   383→    } catch (err) {
+   384→      console.error("[JamaahChat] sendText exception:", err);
+   385→      toast.error("Terjadi kesalahan", {
+   386→        description: err instanceof Error ? err.message : String(err),
+   387→      });
+   388→    } finally {
+   389→      setSending(false);
+   390→    }
+   391→  }
+   392→
+   393→  // ===== Send an attachment placeholder (IMAGE / PDF / FILE) =====
+   394→  async function sendAttachment(type: "IMAGE" | "PDF" | "FILE", label: string) {
+   395→    if (!roomId || !jamaah) {
+   396→      toast.error("Ruang chat belum siap");
+   397→      return;
+   398→    }
+   399→    setSending(true);
+   400→    try {
+   401→      const placeholderContent = `[${label} — ketuk untuk melihat]`;
+   402→      const { error: insErr } = await supabase.from("chat_message").insert({
+   403→        room_id: roomId,
+   404→        sender_type: "JAMAAH",
+   405→        sender_name: jamaah.nama,
+   406→        type,
+   407→        content: placeholderContent,
+   408→        attachment_name: `lampiran-${type.toLowerCase()}.bin`,
+   409→      });
+   410→      if (insErr) {
+   411→        const pgError = insErr.message || String(insErr);
+   412→        const pgCode = (insErr as { code?: string }).code ?? "";
+   413→        console.error("[JamaahChat] attachment INSERT failed:", pgCode, pgError);
+   414→        toast.error("Gagal mengirim lampiran", { description: `[${pgCode}] ${pgError}` });
+   415→        return;
+   416→      }
+   417→      toast.success(`${label} terkirim`);
+   418→      setAttachOpen(false);
+   419→    } catch (err) {
+   420→      console.error("[JamaahChat] sendAttachment exception:", err);
+   421→      toast.error("Terjadi kesalahan", {
+   422→        description: err instanceof Error ? err.message : String(err),
+   423→      });
+   424→    } finally {
+   425→      setSending(false);
+   426→    }
+   427→  }
+   428→
+   429→  // ===== Derived =====
+   430→  const doctorName = doctor?.full_name ?? "Dokter Pendamping";
+   431→  const doctorInitials = doctorName
+   432→    .split(" ")
+   433→    .filter(Boolean)
+   434→    .slice(0, 2)
+   435→    .map((s) => s[0]?.toUpperCase() ?? "")
+   436→    .join("");
+   437→
+   438→  // ===== Render =====
+   439→  return (
+   440→    <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-2xl flex-col bg-background lg:h-[calc(100vh-10rem)]">
+   441→      {/* ===== Header (Doctor info card) ===== */}
+   442→      <header className="flex items-center gap-3 border-b border-border bg-card/95 px-3 py-3 backdrop-blur sm:px-4">
+   443→        <Button
+   444→          variant="ghost"
+   445→          size="icon"
+   446→          className="h-10 w-10 shrink-0"
+   447→          onClick={goJamaahDashboard}
+   448→          title="Kembali"
+   449→        >
+   450→          <ArrowLeft className="h-5 w-5" />
+   451→        </Button>
+   452→        <div className="relative">
+   453→          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-base font-bold text-primary">
+   454→            {doctorInitials || <Stethoscope className="h-6 w-6" />}
+   455→          </div>
+   456→          <span className="absolute -right-0.5 -bottom-0.5 h-3.5 w-3.5 rounded-full border-2 border-card bg-emerald-500" />
+   457→        </div>
+   458→        <div className="min-w-0 flex-1">
+   459→          <p className="truncate text-base font-semibold text-foreground">
+   460→            {doctorName}
+   461→          </p>
+   462→          <p className="text-sm text-muted-foreground">
+   463→            Dokter Pendamping · <span className="text-emerald-600 dark:text-emerald-400">Online</span>
+   464→          </p>
+   465→        </div>
+   466→      </header>
+   467→
+   468→      {/* ===== Main content ===== */}
+   469→      {loading ? (
+   470→        <div className="flex flex-1 items-center justify-center">
+   471→          <div className="flex flex-col items-center gap-3 text-muted-foreground">
+   472→            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+   473→            <p className="text-sm">Memuat percakapan…</p>
+   474→          </div>
+   475→        </div>
+   476→      ) : noDoctor ? (
+   477→        <NoDoctorState onBack={goJamaahDashboard} />
+   478→      ) : loadError ? (
+   479→        <ErrorState message={loadError} onBack={goJamaahDashboard} />
+   480→      ) : (
+   481→        <>
+   482→          {/* ===== Messages area ===== */}
+   483→          <div ref={scrollRef} className="flex-1 overflow-y-auto bg-muted/30 px-3 py-4 sm:px-4">
+   484→            {messages.length === 0 ? (
+   485→              <div className="flex h-full flex-col items-center justify-center gap-3 py-10 text-center">
+   486→                <span className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+   487→                  <Stethoscope className="h-8 w-8" />
+   488→                </span>
+   489→                <p className="text-base font-medium text-foreground">Belum ada pesan</p>
+   490→                <p className="max-w-xs text-sm text-muted-foreground">
+   491→                  Mulai percakapan dengan dokter Anda. Sampaikan keluhan atau pertanyaan kesehatan.
+   492→                </p>
+   493→              </div>
+   494→            ) : (
+   495→              <div className="flex flex-col gap-2">
+   496→                {messages.map((m) => (
+   497→                  <MessageBubble key={m.id} m={m} />
+   498→                ))}
+   499→              </div>
+   500→            )}
+   501→          </div>
+   502→
+   503→          {/* ===== Composer ===== */}
+   504→          <footer className="border-t border-border bg-card px-2 py-3 sm:px-3">
+   505→            <div className="flex items-end gap-1.5">
+   506→              {/* Emoji */}
+   507→              <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+   508→                <PopoverTrigger asChild>
+   509→                  <Button
+   510→                    variant="ghost"
+   511→                    size="icon"
+   512→                    className="h-12 w-12 shrink-0"
+   513→                    title="Emoji"
+   514→                  >
+   515→                    <Smile className="h-5 w-5" />
+   516→                  </Button>
+   517→                </PopoverTrigger>
+   518→                <PopoverContent align="start" className="w-72 p-2">
+   519→                  <div className="grid grid-cols-8 gap-1">
+   520→                    {COMMON_EMOJIS.map((e, i) => (
+   521→                      <button
+   522→                        key={`${e}-${i}`}
+   523→                        type="button"
+   524→                        onClick={() => {
+   525→                          setInput((s) => s + e);
+   526→                          setEmojiOpen(false);
+   527→                        }}
+   528→                        className="rounded-md p-2 text-xl hover:bg-accent"
+   529→                      >
+   530→                        {e}
+   531→                      </button>
+   532→                    ))}
+   533→                  </div>
+   534→                </PopoverContent>
+   535→              </Popover>
+   536→
+   537→              {/* Attach */}
+   538→              <Popover open={attachOpen} onOpenChange={setAttachOpen}>
+   539→                <PopoverTrigger asChild>
+   540→                  <Button
+   541→                    variant="ghost"
+   542→                    size="icon"
+   543→                    className="h-12 w-12 shrink-0"
+   544→                    title="Lampiran"
+   545→                  >
+   546→                    <Paperclip className="h-5 w-5" />
+   547→                  </Button>
+   548→                </PopoverTrigger>
+   549→                <PopoverContent align="start" className="w-48 p-1">
+   550→                  {ATTACH_OPTIONS.map((it) => {
+   551→                    const I = it.icon;
+   552→                    return (
+   553→                      <button
+   554→                        key={it.key}
+   555→                        type="button"
+   556→                        disabled={sending}
+   557→                        onClick={() => sendAttachment(it.key as "IMAGE" | "PDF" | "FILE", it.label)}
+   558→                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent disabled:opacity-50"
+   559→                      >
+   560→                        <I className="h-4 w-4 text-muted-foreground" />
+   561→                        {it.label}
+   562→                      </button>
+   563→                    );
+   564→                  })}
+   565→                </PopoverContent>
+   566→              </Popover>
+   567→
+   568→              {/* Text input */}
+   569→              <textarea
+   570→                value={input}
+   571→                onChange={(e) => setInput(e.target.value)}
+   572→                onKeyDown={(e) => {
+   573→                  if (e.key === "Enter" && !e.shiftKey) {
+   574→                    e.preventDefault();
+   575→                    void sendText();
+   576→                  }
+   577→                }}
+   578→                placeholder="Tulis pesan untuk dokter…"
+   579→                rows={1}
+   580→                className="max-h-32 min-h-[48px] flex-1 resize-none rounded-2xl border border-input bg-background px-4 py-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+   581→              />
+   582→
+   583→              {/* Send */}
+   584→              <Button
+   585→                onClick={() => void sendText()}
+   586→                disabled={sending || !input.trim()}
+   587→                size="icon"
+   588→                className="h-12 w-12 shrink-0 rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+   589→                title="Kirim"
+   590→              >
+   591→                {sending ? (
+   592→                  <Loader2 className="h-5 w-5 animate-spin" />
+   593→                ) : (
+   594→                  <Send className="h-5 w-5" />
+   595→                )}
+   596→              </Button>
+   597→            </div>
+   598→          </footer>
+   599→        </>
+   600→      )}
+   601→    </div>
+   602→  );
+   603→}
+   604→
+   605→// ============================================================================
+   606→// Message bubble — DOCTOR left (card bg), JAMAAH right (primary bg),
+   607→// SYSTEM/AI centered (muted).
+   608→// ============================================================================
+   609→
+   610→function MessageBubble({ m }: { m: ChatMessageRow }) {
+   611→  const isJamaah = m.sender_type === "JAMAAH";
+   612→  const isSystem = m.sender_type === "SYSTEM" || m.sender_type === "AI";
+   613→  const isAlert = m.type === "ALERT";
+   614→  const time = new Date(m.created_at).toLocaleTimeString("id-ID", {
+   615→    hour: "2-digit",
+   616→    minute: "2-digit",
+   617→  });
+   618→
+   619→  // ===== System / AI: centered muted =====
+   620→  if (isSystem) {
+   621→    return (
+   622→      <div className="my-1 flex justify-center">
+   623→        <div
+   624→          className={cn(
+   625→            "flex max-w-md items-start gap-2 rounded-lg border px-3 py-2 text-sm",
+   626→            isAlert
+   627→              ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
+   628→              : "border-border bg-muted text-muted-foreground"
+   629→          )}
+   630→        >
+   631→          {isAlert && <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
+   632→          <span className="whitespace-pre-wrap">{m.content}</span>
+   633→        </div>
+   634→      </div>
+   635→    );
+   636→  }
+   637→
+   638→  // ===== Attachment bubbles =====
+   639→  const isAttachment =
+   640→    m.type === "IMAGE" || m.type === "PDF" || m.type === "FILE" ||
+   641→    m.type === "VOICE" || m.type === "LOCATION" || m.type === "STICKER";
+   642→
+   643→  return (
+   644→    <div className={cn("flex", isJamaah ? "justify-end" : "justify-start")}>
+   645→      <div
+   646→        className={cn(
+   647→          "max-w-[80%] rounded-2xl px-4 py-2.5 shadow-sm sm:max-w-[75%]",
+   648→          isJamaah
+   649→            ? "rounded-br-sm bg-primary text-primary-foreground"
+   650→            : "rounded-bl-sm bg-card text-card-foreground border border-border"
+   651→        )}
+   652→      >
+   653→        {isAttachment ? (
+   654→          <div className="flex items-center gap-2">
+   655→            <AttachmentIcon type={m.type} />
+   656→            <span className="text-sm">
+   657→              {labelForType(m.type)}: {m.content || m.attachment_name || "—"}
+   658→            </span>
+   659→          </div>
+   660→        ) : (
+   661→          <p className="whitespace-pre-wrap break-words text-base">{m.content}</p>
+   662→        )}
+   663→
+   664→        {/* Timestamp + read receipt */}
+   665→        <div
+   666→          className={cn(
+   667→            "mt-1 flex items-center gap-1 text-xs",
+   668→            isJamaah ? "justify-end text-primary-foreground/70" : "text-muted-foreground"
+   669→          )}
+   670→        >
+   671→          <span>{time}</span>
+   672→          {/* Jamaah's own messages: show read receipt when doctor has read */}
+   673→          {isJamaah && (
+   674→            m.read_by_doctor ? (
+   675→              <CheckCheck className="h-3.5 w-3.5" />
+   676→            ) : (
+   677→              <Check className="h-3.5 w-3.5" />
+   678→            )
+   679→          )}
+   680→          {/* Doctor messages: show read receipt when jamaah has read (default true since viewing) */}
+   681→          {!isJamaah && m.read_by_jamaah && (
+   682→            <CheckCheck className="h-3.5 w-3.5" />
+   683→          )}
+   684→        </div>
+   685→      </div>
+   686→    </div>
+   687→  );
+   688→}
+   689→
+   690→function labelForType(t: string): string {
+   691→  switch (t) {
+   692→    case "IMAGE": return "📷 Foto";
+   693→    case "PDF": return "📄 PDF";
+   694→    case "FILE": return "📎 File";
+   695→    case "VOICE": return "🎙️ Pesan suara";
+   696→    case "LOCATION": return "📍 Lokasi";
+   697→    case "STICKER": return "🎨 Sticker";
+   698→    default: return t;
+   699→  }
+   700→}
+   701→
+   702→function AttachmentIcon({ type }: { type: string }) {
+   703→  let I: LucideIcon = FileIcon;
+   704→  if (type === "IMAGE") I = ImageIcon;
+   705→  else if (type === "PDF") I = FileText;
+   706→  return <I className="h-4 w-4 shrink-0 opacity-70" />;
+   707→}
+   708→
+   709→// ============================================================================
+   710→// States: no doctor assigned, load error
+   711→// ============================================================================
+   712→
+   713→function NoDoctorState({ onBack }: { onBack: () => void }) {
+   714→  return (
+   715→    <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
+   716→      <span className="inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300">
+   717→        <Stethoscope className="h-10 w-10" />
+   718→      </span>
+   719→      <div className="space-y-1.5">
+   720→        <p className="text-lg font-semibold text-foreground">Belum ada dokter pendamping</p>
+   721→        <p className="max-w-md text-sm text-muted-foreground">
+   722→          Akun Anda belum ditugaskan ke dokter keluarga. Hubungi Puskesmas untuk penugasan dokter
+   723→          agar dapat memulai konsultasi telemedicine.
+   724→        </p>
+   725→      </div>
+   726→      <Button variant="outline" className="mt-2" onClick={onBack}>
+   727→        <ArrowLeft className="mr-2 h-4 w-4" />
+   728→        Kembali ke Dashboard
+   729→      </Button>
+   730→    </div>
+   731→  );
+   732→}
+   733→
+   734→function ErrorState({ message, onBack }: { message: string; onBack: () => void }) {
+   735→  return (
+   736→    <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
+   737→      <span className="inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300">
+   738→        <AlertCircle className="h-10 w-10" />
+   739→      </span>
+   740→      <div className="space-y-1.5">
+   741→        <p className="text-lg font-semibold text-foreground">Terjadi kesalahan</p>
+   742→        <p className="max-w-md text-sm text-muted-foreground">{message}</p>
+   743→      </div>
+   744→      <Button variant="outline" className="mt-2" onClick={onBack}>
+   745→        <ArrowLeft className="mr-2 h-4 w-4" />
+   746→        Kembali ke Dashboard
+   747→      </Button>
+   748→    </div>
+   749→  );
+   750→}
+   751→

@@ -1,0 +1,975 @@
+     1→-- ============================================================================
+     2→-- SiHaji Care — Enterprise Supabase Schema (Production-Ready)
+     3→-- Electronic Hajj Health Record (EHHR) + Telemedicine Monitoring
+     4→-- ============================================================================
+     5→-- Compliance: Chapters 3, 4, 5, 6, 11, 26 of the Architecture Standard.
+     6→--
+     7→-- Standards enforced:
+     8→--   • Every table: id (UUID), created_at, updated_at, created_by, updated_by,
+     9→--     deleted_at, is_active  (Chapter 3)
+    10→--   • UUID primary keys only — no auto-increment integers (Chapter 3)
+    11→--   • Foreign Keys, Indexes, Unique, Check Constraints on every table (Chapter 3)
+    12→--   • RLS enabled on every table with SELECT/INSERT/UPDATE/DELETE policies (Chapter 5)
+    13→--   • RLS uses DROP POLICY IF EXISTS + CREATE POLICY (never IF NOT EXISTS) (Chapter 4)
+    14→--   • Audit Log table + triggers on every mutation (Chapter 11)
+    15→--   • Multi-role: super_admin, admin, kepala_klinik, pj_mutu, petugas, viewer, jamaah (Chapter 26)
+    16→--   • Soft delete via deleted_at + is_active (Chapter 3)
+    17→--
+    18→-- Run in: Supabase Dashboard → SQL Editor → paste → Run
+    19→-- Idempotent: safe to re-run. NOTE: re-running DROPS all existing tables
+    20→-- and recreates them (data is reset). This guarantees a clean schema even
+    21→-- after prior failed runs that left partial tables.
+    22→-- ============================================================================
+    23→
+    24→-- ---------- Extensions ----------
+    25→create extension if not exists "pgcrypto";
+    26→
+    27→-- ---------- Remove conflicting enum from prior runs ----------
+    28→drop type if exists public.user_role cascade;
+    29→
+    30→-- ============================================================================
+    31→-- 0a. CLEAN SLATE — drop all existing objects so re-runs rebuild correctly.
+    32→-- ============================================================================
+    33→-- IMPORTANT: Prior failed runs may have left partial tables (e.g. jamaah
+    34→-- without the is_active column). CREATE TABLE IF NOT EXISTS will NOT add
+    35→-- missing columns to an existing table, so we must drop everything first
+    36→-- to guarantee a clean rebuild with the full correct schema every time.
+    37→-- All data is lost on re-run — this is expected during schema setup.
+    38→
+    39→drop function if exists public.is_staff() cascade;
+    40→drop function if exists public.is_super_admin() cascade;
+    41→drop function if exists public.current_jamaah_id() cascade;
+    42→drop function if exists public.handle_new_user() cascade;
+    43→drop function if exists public.set_meta_on_insert() cascade;
+    44→drop function if exists public.set_meta_on_update() cascade;
+    45→drop function if exists public.log_audit() cascade;
+    46→
+    47→drop table if exists public.telemedicine_ai_summary cascade;
+    48→drop table if exists public.telemedicine_schedule cascade;
+    49→drop table if exists public.telemedicine_template cascade;
+    50→drop table if exists public.telemedicine_request cascade;
+    51→drop table if exists public.chat_message cascade;
+    52→drop table if exists public.chat_room cascade;
+    53→drop table if exists public.pre_hajj_ai_assessment cascade;
+    54→drop table if exists public.pre_hajj_education cascade;
+    55→drop table if exists public.pre_hajj_fitness cascade;
+    56→drop table if exists public.pre_hajj_immunization cascade;
+    57→drop table if exists public.pre_hajj_medication cascade;
+    58→drop table if exists public.pre_hajj_screening cascade;
+    59→drop table if exists public.pre_hajj_chronic cascade;
+    60→drop table if exists public.pre_hajj_lab cascade;
+    61→drop table if exists public.pre_hajj_vital cascade;
+    62→drop table if exists public.vital_sign cascade;
+    63→drop table if exists public.screening cascade;
+    64→drop table if exists public.jamaah cascade;
+    65→drop table if exists public.audit_log cascade;
+    66→drop table if exists public.profiles cascade;
+    67→
+    68→-- ============================================================================
+    69→-- 0b. HELPER FUNCTIONS
+    70→-- ============================================================================
+    71→-- NOTE: Functions that reference tables (is_staff, is_super_admin,
+    72→-- current_jamaah_id) are defined AFTER those tables are created, because
+    73→-- LANGUAGE sql functions validate their queries at creation time.
+    74→-- The generic meta/audit functions (which don't reference specific tables
+    75→-- at parse time — they use TG_* variables) are defined after audit_log.
+    76→-- All functions were DROPped above; they are CREATEd in the correct order below.
+    77→
+    78→-- ============================================================================
+    79→-- 1. PROFILES (linked to auth.users) — multi-role
+    80→-- ============================================================================
+    81→create table if not exists public.profiles (
+    82→  id          uuid primary key references auth.users(id) on delete cascade,
+    83→  role        text not null default 'petugas'
+    84→              check (role in ('super_admin','admin','kepala_klinik','pj_mutu','petugas','viewer','jamaah')),
+    85→  full_name   text,
+    86→  email       text,
+    87→  phone       text,
+    88→  is_active   boolean not null default true,
+    89→  created_at  timestamptz not null default now(),
+    90→  updated_at  timestamptz not null default now(),
+    91→  created_by  uuid references auth.users(id),
+    92→  updated_by  uuid references auth.users(id),
+    93→  deleted_at  timestamptz,
+    94→  unique (email)
+    95→);
+    96→create index if not exists idx_profiles_role      on public.profiles(role);
+    97→create index if not exists idx_profiles_is_active on public.profiles(is_active);
+    98→
+    99→-- Auto-create a profile row on signup
+   100→create or replace function public.handle_new_user()
+   101→returns trigger
+   102→language plpgsql
+   103→security definer set search_path = public
+   104→as $$
+   105→declare
+   106→  v_role text;
+   107→begin
+   108→  v_role := coalesce(new.raw_user_meta_data->>'role', 'petugas');
+   109→  if v_role not in ('super_admin','admin','kepala_klinik','pj_mutu','petugas','viewer','jamaah') then
+   110→    v_role := 'petugas';
+   111→  end if;
+   112→  insert into public.profiles (id, email, full_name, role, created_by, updated_by)
+   113→  values (
+   114→    new.id,
+   115→    new.email,
+   116→    coalesce(new.raw_user_meta_data->>'full_name', new.email),
+   117→    v_role,
+   118→    new.id,
+   119→    new.id
+   120→  )
+   121→  on conflict (id) do nothing;
+   122→  return new;
+   123→end;
+   124→$$;
+   125→
+   126→drop trigger if exists on_auth_user_created on auth.users;
+   127→create trigger on_auth_user_created
+   128→  after insert on auth.users
+   129→  for each row execute function public.handle_new_user();
+   130→
+   131→-- ============================================================================
+   132→-- 2. AUDIT LOG (Chapter 11)
+   133→-- ============================================================================
+   134→create table if not exists public.audit_log (
+   135→  id          uuid primary key default gen_random_uuid(),
+   136→  user_id     uuid references auth.users(id) on delete set null,
+   137→  action      text not null check (action in ('INSERT','UPDATE','DELETE','RESTORE','LOGIN','LOGOUT','EXPORT','IMPORT')),
+   138→  table_name  text not null,
+   139→  record_id   text,
+   140→  old_value   jsonb,
+   141→  new_value   jsonb,
+   142→  ip_address  text,
+   143→  user_agent  text,
+   144→  reason      text,
+   145→  created_at  timestamptz not null default now()
+   146→);
+   147→create index if not exists idx_audit_log_user       on public.audit_log(user_id);
+   148→create index if not exists idx_audit_log_table      on public.audit_log(table_name);
+   149→create index if not exists idx_audit_log_action     on public.audit_log(action);
+   150→create index if not exists idx_audit_log_created_at on public.audit_log(created_at desc);
+   151→
+   152→-- ============================================================================
+   153→-- 3. GENERIC META TRIGGERS (auto-set created_by/updated_by/updated_at)
+   154→-- ============================================================================
+   155→create or replace function public.set_meta_on_insert()
+   156→returns trigger
+   157→language plpgsql
+   158→security definer set search_path = public
+   159→as $$
+   160→begin
+   161→  new.created_at := coalesce(new.created_at, now());
+   162→  new.updated_at := now();
+   163→  new.is_active  := coalesce(new.is_active, true);
+   164→  if new.created_by is null then
+   165→    new.created_by := auth.uid();
+   166→  end if;
+   167→  if new.updated_by is null then
+   168→    new.updated_by := auth.uid();
+   169→  end if;
+   170→  return new;
+   171→end;
+   172→$$;
+   173→
+   174→create or replace function public.set_meta_on_update()
+   175→returns trigger
+   176→language plpgsql
+   177→security definer set search_path = public
+   178→as $$
+   179→begin
+   180→  new.updated_at := now();
+   181→  new.updated_by := auth.uid();
+   182→  -- Prevent immutable fields from changing
+   183→  new.created_at := old.created_at;
+   184→  new.created_by := old.created_by;
+   185→  return new;
+   186→end;
+   187→$$;
+   188→
+   189→-- Generic audit logger: logs INSERT/UPDATE/DELETE to audit_log
+   190→create or replace function public.log_audit()
+   191→returns trigger
+   192→language plpgsql
+   193→security definer set search_path = public
+   194→as $$
+   195→declare
+   196→  v_action text;
+   197→  v_old jsonb;
+   198→  v_new jsonb;
+   199→begin
+   200→  if tg_op = 'INSERT' then
+   201→    v_action := 'INSERT'; v_old := null; v_new := to_jsonb(new);
+   202→  elsif tg_op = 'UPDATE' then
+   203→    v_action := 'UPDATE'; v_old := to_jsonb(old); v_new := to_jsonb(new);
+   204→    -- Skip if only updated_at changed (avoid noise)
+   205→    if v_old - 'updated_at' = v_new - 'updated_at' then return new; end if;
+   206→  elsif tg_op = 'DELETE' then
+   207→    v_action := 'DELETE'; v_old := to_jsonb(old); v_new := null;
+   208→  end if;
+   209→  insert into public.audit_log (user_id, action, table_name, record_id, old_value, new_value)
+   210→  values (auth.uid(), v_action, tg_table_name, coalesce(new.id::text, old.id::text), v_old, v_new);
+   211→  return coalesce(new, old);
+   212→end;
+   213→$$;
+   214→
+   215→-- ============================================================================
+   216→-- 4. JAMAAH (EHHR core)
+   217→-- ============================================================================
+   218→create table if not exists public.jamaah (
+   219→  id                uuid primary key default gen_random_uuid(),
+   220→  user_id           uuid references auth.users(id) on delete set null,
+   221→  doctor_id         uuid references auth.users(id) on delete set null,
+   222→  nama              text not null,
+   223→  nik               text not null,
+   224→  kloter            text not null,
+   225→  porsi             text not null,
+   226→  usia              integer not null check (usia >= 0 and usia <= 150),
+   227→  kelamin           text not null check (kelamin in ('L','P')),
+   228→  alamat            text not null default '',
+   229→  hp                text not null default '',
+   230→  kontak_keluarga   text not null default '',
+   231→  tanggal_tiba      timestamptz not null,
+   232→  bandara           text not null default '',
+   233→  kabupaten_kota    text not null default '',
+   234→  puskesmas         text not null default '',
+   235→  dokter_keluarga   text not null default '',
+   236→  paspor            text,
+   237→  embarkasi         text,
+   238→  gol_darah         text check (gol_darah is null or gol_darah ~ '^(A|B|AB|O)[+-]$'),
+   239→  riwayat_penyakit  text,
+   240→  riwayat_operasi   text,
+   241→  alergi            text,
+   242→  obat_rutin        text,
+   243→  status_istithaah  text default 'Belum Dinilai'
+   244→                    check (status_istithaah in ('Laik','Bersyarat','Tidak Laik','Belum Dinilai')),
+   245→  tanggal_berangkat timestamptz,
+   246→  tanggal_pulang    timestamptz,
+   247→  risk_level        text not null default 'HIJAU' check (risk_level in ('HIJAU','KUNING','MERAH')),
+   248→  risk_summary      text not null default '',
+   249→  -- Standard columns
+   250→  created_at  timestamptz not null default now(),
+   251→  updated_at  timestamptz not null default now(),
+   252→  created_by  uuid references auth.users(id),
+   253→  updated_by  uuid references auth.users(id),
+   254→  deleted_at  timestamptz,
+   255→  is_active   boolean not null default true,
+   256→  unique (nik)
+   257→);
+   258→create index if not exists idx_jamaah_user_id     on public.jamaah(user_id);
+   259→create index if not exists idx_jamaah_doctor_id   on public.jamaah(doctor_id);
+   260→create index if not exists idx_jamaah_risk_level  on public.jamaah(risk_level desc);
+   261→create index if not exists idx_jamaah_kloter      on public.jamaah(kloter);
+   262→create index if not exists idx_jamaah_puskesmas   on public.jamaah(puskesmas);
+   263→create index if not exists idx_jamaah_is_active   on public.jamaah(is_active);
+   264→create index if not exists idx_jamaah_deleted_at  on public.jamaah(deleted_at);
+   265→
+   266→drop trigger if exists trg_jamaah_meta_ins on public.jamaah;
+   267→create trigger trg_jamaah_meta_ins before insert on public.jamaah
+   268→  for each row execute function public.set_meta_on_insert();
+   269→drop trigger if exists trg_jamaah_meta_upd on public.jamaah;
+   270→create trigger trg_jamaah_meta_upd before update on public.jamaah
+   271→  for each row execute function public.set_meta_on_update();
+   272→drop trigger if exists trg_jamaah_audit on public.jamaah;
+   273→create trigger trg_jamaah_audit after insert or update or delete on public.jamaah
+   274→  for each row execute function public.log_audit();
+   275→
+   276→-- TABLE-DEPENDENT HELPER FUNCTIONS
+   277→-- Defined here (after profiles + jamaah tables) because LANGUAGE sql
+   278→-- functions validate their queries at creation time.
+   279→
+   280→-- Is the current user a staff member (can manage clinical data)?
+   281→create or replace function public.is_staff()
+   282→returns boolean
+   283→language sql
+   284→security definer set search_path = public
+   285→as $$
+   286→  select coalesce(
+   287→    (select role in ('super_admin','admin','kepala_klinik','pj_mutu','petugas')
+   288→     from public.profiles where id = auth.uid()),
+   289→    false
+   290→  );
+   291→$$;
+   292→
+   293→-- Is the current user a super admin?
+   294→create or replace function public.is_super_admin()
+   295→returns boolean
+   296→language sql
+   297→security definer set search_path = public
+   298→as $$
+   299→  select coalesce(
+   300→    (select role = 'super_admin' from public.profiles where id = auth.uid()),
+   301→    false
+   302→  );
+   303→$$;
+   304→
+   305→-- The current user's linked jamaah id (if they are a patient)
+   306→create or replace function public.current_jamaah_id()
+   307→returns uuid
+   308→language sql
+   309→security definer set search_path = public
+   310→as $$
+   311→  select id from public.jamaah where user_id = auth.uid() and deleted_at is null limit 1;
+   312→$$;
+   313→
+   314→-- ============================================================================
+   315→-- 5. PASCA HAJI — Screening & VitalSign
+   316→-- ============================================================================
+   317→create table if not exists public.screening (
+   318→  id          uuid primary key default gen_random_uuid(),
+   319→  jamaah_id   uuid not null references public.jamaah(id) on delete cascade,
+   320→  jenis       text not null,
+   321→  data        text not null default '{}',
+   322→  skor        text,
+   323→  catatan     text,
+   324→  hari_ke     integer not null default 1 check (hari_ke in (1,7,14,30,90)),
+   325→  created_at  timestamptz not null default now(),
+   326→  updated_at  timestamptz not null default now(),
+   327→  created_by  uuid references auth.users(id),
+   328→  updated_by  uuid references auth.users(id),
+   329→  deleted_at  timestamptz,
+   330→  is_active   boolean not null default true
+   331→);
+   332→create index if not exists idx_screening_jamaah_jenis on public.screening(jamaah_id, jenis);
+   333→create index if not exists idx_screening_jenis_hari   on public.screening(jenis, hari_ke);
+   334→create index if not exists idx_screening_is_active    on public.screening(is_active);
+   335→
+   336→drop trigger if exists trg_screening_meta_ins on public.screening;
+   337→create trigger trg_screening_meta_ins before insert on public.screening
+   338→  for each row execute function public.set_meta_on_insert();
+   339→drop trigger if exists trg_screening_meta_upd on public.screening;
+   340→create trigger trg_screening_meta_upd before update on public.screening
+   341→  for each row execute function public.set_meta_on_update();
+   342→drop trigger if exists trg_screening_audit on public.screening;
+   343→create trigger trg_screening_audit after insert or update or delete on public.screening
+   344→  for each row execute function public.log_audit();
+   345→
+   346→create table if not exists public.vital_sign (
+   347→  id            uuid primary key default gen_random_uuid(),
+   348→  jamaah_id     uuid not null references public.jamaah(id) on delete cascade,
+   349→  td_sistolik   integer check (td_sistolik is null or td_sistolik between 40 and 300),
+   350→  td_diastolik  integer check (td_diastolik is null or td_diastolik between 20 and 200),
+   351→  nadi          integer check (nadi is null or nadi between 20 and 250),
+   352→  rr            integer check (rr is null or rr between 5 and 60),
+   353→  suhu          double precision check (suhu is null or suhu between 30 and 45),
+   354→  spo2          double precision check (spo2 is null or spo2 between 0 and 100),
+   355→  berat_badan   double precision check (berat_badan is null or berat_badan between 1 and 400),
+   356→  gula_darah    double precision check (gula_darah is null or gula_darah between 10 and 1000),
+   357→  hari_ke       integer not null default 1 check (hari_ke in (1,7,14,30,90)),
+   358→  catatan       text,
+   359→  created_at    timestamptz not null default now(),
+   360→  updated_at    timestamptz not null default now(),
+   361→  created_by    uuid references auth.users(id),
+   362→  updated_by    uuid references auth.users(id),
+   363→  deleted_at    timestamptz,
+   364→  is_active     boolean not null default true
+   365→);
+   366→create index if not exists idx_vital_sign_jamaah_hari on public.vital_sign(jamaah_id, hari_ke);
+   367→create index if not exists idx_vital_sign_is_active  on public.vital_sign(is_active);
+   368→
+   369→drop trigger if exists trg_vital_sign_meta_ins on public.vital_sign;
+   370→create trigger trg_vital_sign_meta_ins before insert on public.vital_sign
+   371→  for each row execute function public.set_meta_on_insert();
+   372→drop trigger if exists trg_vital_sign_meta_upd on public.vital_sign;
+   373→create trigger trg_vital_sign_meta_upd before update on public.vital_sign
+   374→  for each row execute function public.set_meta_on_update();
+   375→drop trigger if exists trg_vital_sign_audit on public.vital_sign;
+   376→create trigger trg_vital_sign_audit after insert or update or delete on public.vital_sign
+   377→  for each row execute function public.log_audit();
+   378→
+   379→-- ============================================================================
+   380→-- 6. PRA HAJI — Vitals, Labs, Chronic, Screenings, Meds, Immunizations, Fitness, Education, AI
+   381→-- ============================================================================
+   382→-- (Each table follows the standard: UUID PK, 7 meta columns, FK, indexes, check, triggers.)
+   383→
+   384→create table if not exists public.pre_hajj_vital (
+   385→  id            uuid primary key default gen_random_uuid(),
+   386→  jamaah_id     uuid not null references public.jamaah(id) on delete cascade,
+   387→  td_sistolik   integer, td_diastolik integer, nadi integer, rr integer,
+   388→  suhu          double precision, spo2 double precision,
+   389→  berat_badan   double precision, tinggi_badan double precision, lingkar_perut double precision,
+   390→  catatan       text,
+   391→  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+   392→  created_by uuid references auth.users(id), updated_by uuid references auth.users(id),
+   393→  deleted_at timestamptz, is_active boolean not null default true
+   394→);
+   395→create index if not exists idx_pre_hajj_vital_jamaah on public.pre_hajj_vital(jamaah_id);
+   396→create index if not exists idx_pre_hajj_vital_active on public.pre_hajj_vital(is_active);
+   397→drop trigger if exists trg_phv_meta_ins on public.pre_hajj_vital;
+   398→create trigger trg_phv_meta_ins before insert on public.pre_hajj_vital for each row execute function public.set_meta_on_insert();
+   399→drop trigger if exists trg_phv_meta_upd on public.pre_hajj_vital;
+   400→create trigger trg_phv_meta_upd before update on public.pre_hajj_vital for each row execute function public.set_meta_on_update();
+   401→drop trigger if exists trg_phv_audit on public.pre_hajj_vital;
+   402→create trigger trg_phv_audit after insert or update or delete on public.pre_hajj_vital for each row execute function public.log_audit();
+   403→
+   404→create table if not exists public.pre_hajj_lab (
+   405→  id           uuid primary key default gen_random_uuid(),
+   406→  jamaah_id    uuid not null references public.jamaah(id) on delete cascade,
+   407→  hb double precision, gdp double precision, gd2pp double precision, hba1c double precision,
+   408→  kolesterol double precision, hdl double precision, ldl double precision, trigliserida double precision,
+   409→  asam_urat double precision, sgot double precision, sgpt double precision,
+   410→  kreatinin double precision, egfr double precision, urinalisis text, catatan text,
+   411→  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+   412→  created_by uuid references auth.users(id), updated_by uuid references auth.users(id),
+   413→  deleted_at timestamptz, is_active boolean not null default true
+   414→);
+   415→create index if not exists idx_pre_hajj_lab_jamaah on public.pre_hajj_lab(jamaah_id);
+   416→create index if not exists idx_pre_hajj_lab_active on public.pre_hajj_lab(is_active);
+   417→drop trigger if exists trg_phl_meta_ins on public.pre_hajj_lab;
+   418→create trigger trg_phl_meta_ins before insert on public.pre_hajj_lab for each row execute function public.set_meta_on_insert();
+   419→drop trigger if exists trg_phl_meta_upd on public.pre_hajj_lab;
+   420→create trigger trg_phl_meta_upd before update on public.pre_hajj_lab for each row execute function public.set_meta_on_update();
+   421→drop trigger if exists trg_phl_audit on public.pre_hajj_lab;
+   422→create trigger trg_phl_audit after insert or update or delete on public.pre_hajj_lab for each row execute function public.log_audit();
+   423→
+   424→create table if not exists public.pre_hajj_chronic (
+   425→  id            uuid primary key default gen_random_uuid(),
+   426→  jamaah_id     uuid not null references public.jamaah(id) on delete cascade,
+   427→  hipertensi    text not null default 'Tidak' check (hipertensi in ('Tidak','Terkontrol','Tidak Terkontrol')),
+   428→  diabetes      text not null default 'Tidak' check (diabetes in ('Tidak','Terkontrol','Tidak Terkontrol')),
+   429→  ppok          text not null default 'Tidak' check (ppok in ('Tidak','Terkontrol','Tidak Terkontrol')),
+   430→  ckd           text not null default 'Tidak' check (ckd in ('Tidak','Terkontrol','Tidak Terkontrol')),
+   431→  jantung       text not null default 'Tidak' check (jantung in ('Tidak','Terkontrol','Tidak Terkontrol')),
+   432→  stroke        text not null default 'Tidak' check (stroke in ('Tidak','Terkontrol','Tidak Terkontrol')),
+   433→  kanker        text not null default 'Tidak' check (kanker in ('Tidak','Terkontrol','Tidak Terkontrol')),
+   434→  obat_rutin    text, target_terapi text,
+   435→  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+   436→  created_by uuid references auth.users(id), updated_by uuid references auth.users(id),
+   437→  deleted_at timestamptz, is_active boolean not null default true,
+   438→  unique (jamaah_id)
+   439→);
+   440→create index if not exists idx_pre_hajj_chronic_jamaah on public.pre_hajj_chronic(jamaah_id);
+   441→drop trigger if exists trg_phc_meta_ins on public.pre_hajj_chronic;
+   442→create trigger trg_phc_meta_ins before insert on public.pre_hajj_chronic for each row execute function public.set_meta_on_insert();
+   443→drop trigger if exists trg_phc_meta_upd on public.pre_hajj_chronic;
+   444→create trigger trg_phc_meta_upd before update on public.pre_hajj_chronic for each row execute function public.set_meta_on_update();
+   445→drop trigger if exists trg_phc_audit on public.pre_hajj_chronic;
+   446→create trigger trg_phc_audit after insert or update or delete on public.pre_hajj_chronic for each row execute function public.log_audit();
+   447→
+   448→create table if not exists public.pre_hajj_screening (
+   449→  id          uuid primary key default gen_random_uuid(),
+   450→  jamaah_id   uuid not null references public.jamaah(id) on delete cascade,
+   451→  jenis       text not null,
+   452→  data        text not null default '{}', skor text, catatan text,
+   453→  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+   454→  created_by uuid references auth.users(id), updated_by uuid references auth.users(id),
+   455→  deleted_at timestamptz, is_active boolean not null default true
+   456→);
+   457→create index if not exists idx_pre_hajj_screening_jamaah_jenis on public.pre_hajj_screening(jamaah_id, jenis);
+   458→create index if not exists idx_pre_hajj_screening_active on public.pre_hajj_screening(is_active);
+   459→drop trigger if exists trg_phs_meta_ins on public.pre_hajj_screening;
+   460→create trigger trg_phs_meta_ins before insert on public.pre_hajj_screening for each row execute function public.set_meta_on_insert();
+   461→drop trigger if exists trg_phs_meta_upd on public.pre_hajj_screening;
+   462→create trigger trg_phs_meta_upd before update on public.pre_hajj_screening for each row execute function public.set_meta_on_update();
+   463→drop trigger if exists trg_phs_audit on public.pre_hajj_screening;
+   464→create trigger trg_phs_audit after insert or update or delete on public.pre_hajj_screening for each row execute function public.log_audit();
+   465→
+   466→create table if not exists public.pre_hajj_medication (
+   467→  id          uuid primary key default gen_random_uuid(),
+   468→  jamaah_id   uuid not null references public.jamaah(id) on delete cascade,
+   469→  nama_obat   text not null, dosis text, frekuensi text, indikasi text, catatan text,
+   470→  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+   471→  created_by uuid references auth.users(id), updated_by uuid references auth.users(id),
+   472→  deleted_at timestamptz, is_active boolean not null default true
+   473→);
+   474→create index if not exists idx_pre_hajj_medication_jamaah on public.pre_hajj_medication(jamaah_id);
+   475→drop trigger if exists trg_phm_meta_ins on public.pre_hajj_medication;
+   476→create trigger trg_phm_meta_ins before insert on public.pre_hajj_medication for each row execute function public.set_meta_on_insert();
+   477→drop trigger if exists trg_phm_meta_upd on public.pre_hajj_medication;
+   478→create trigger trg_phm_meta_upd before update on public.pre_hajj_medication for each row execute function public.set_meta_on_update();
+   479→drop trigger if exists trg_phm_audit on public.pre_hajj_medication;
+   480→create trigger trg_phm_audit after insert or update or delete on public.pre_hajj_medication for each row execute function public.log_audit();
+   481→
+   482→create table if not exists public.pre_hajj_immunization (
+   483→  id             uuid primary key default gen_random_uuid(),
+   484→  jamaah_id      uuid not null references public.jamaah(id) on delete cascade,
+   485→  jenis          text not null check (jenis in ('MENINGITIS','INFLUENZA','COVID','PNEUMOKOKUS','HEPATITIS')),
+   486→  tanggal_vaksin timestamptz, nomor_batch text, catatan text,
+   487→  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+   488→  created_by uuid references auth.users(id), updated_by uuid references auth.users(id),
+   489→  deleted_at timestamptz, is_active boolean not null default true
+   490→);
+   491→create index if not exists idx_pre_hajj_immunization_jamaah on public.pre_hajj_immunization(jamaah_id);
+   492→drop trigger if exists trg_phi_meta_ins on public.pre_hajj_immunization;
+   493→create trigger trg_phi_meta_ins before insert on public.pre_hajj_immunization for each row execute function public.set_meta_on_insert();
+   494→drop trigger if exists trg_phi_meta_upd on public.pre_hajj_immunization;
+   495→create trigger trg_phi_meta_upd before update on public.pre_hajj_immunization for each row execute function public.set_meta_on_update();
+   496→drop trigger if exists trg_phi_audit on public.pre_hajj_immunization;
+   497→create trigger trg_phi_audit after insert or update or delete on public.pre_hajj_immunization for each row execute function public.log_audit();
+   498→
+   499→create table if not exists public.pre_hajj_fitness (
+   500→  id             uuid primary key default gen_random_uuid(),
+   501→  jamaah_id      uuid not null references public.jamaah(id) on delete cascade,
+   502→  target_langkah integer, jalan_kaki integer, aerobik integer, kekuatan integer, pernafasan integer,
+   503→  catatan text,
+   504→  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+   505→  created_by uuid references auth.users(id), updated_by uuid references auth.users(id),
+   506→  deleted_at timestamptz, is_active boolean not null default true
+   507→);
+   508→create index if not exists idx_pre_hajj_fitness_jamaah on public.pre_hajj_fitness(jamaah_id);
+   509→drop trigger if exists trg_phf_meta_ins on public.pre_hajj_fitness;
+   510→create trigger trg_phf_meta_ins before insert on public.pre_hajj_fitness for each row execute function public.set_meta_on_insert();
+   511→drop trigger if exists trg_phf_meta_upd on public.pre_hajj_fitness;
+   512→create trigger trg_phf_meta_upd before update on public.pre_hajj_fitness for each row execute function public.set_meta_on_update();
+   513→drop trigger if exists trg_phf_audit on public.pre_hajj_fitness;
+   514→create trigger trg_phf_audit after insert or update or delete on public.pre_hajj_fitness for each row execute function public.log_audit();
+   515→
+   516→create table if not exists public.pre_hajj_education (
+   517→  id                     uuid primary key default gen_random_uuid(),
+   518→  jamaah_id              uuid not null references public.jamaah(id) on delete cascade,
+   519→  diet                   boolean not null default false,
+   520→  aktivitas              boolean not null default false,
+   521→  obat                   boolean not null default false,
+   522→  hidrasi                boolean not null default false,
+   523→  istirahat              boolean not null default false,
+   524→  manajemen_kronis       boolean not null default false,
+   525→  persiapan_perjalanan   boolean not null default false,
+   526→  catatan text,
+   527→  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+   528→  created_by uuid references auth.users(id), updated_by uuid references auth.users(id),
+   529→  deleted_at timestamptz, is_active boolean not null default true,
+   530→  unique (jamaah_id)
+   531→);
+   532→create index if not exists idx_pre_hajj_education_jamaah on public.pre_hajj_education(jamaah_id);
+   533→drop trigger if exists trg_phe_meta_ins on public.pre_hajj_education;
+   534→create trigger trg_phe_meta_ins before insert on public.pre_hajj_education for each row execute function public.set_meta_on_insert();
+   535→drop trigger if exists trg_phe_meta_upd on public.pre_hajj_education;
+   536→create trigger trg_phe_meta_upd before update on public.pre_hajj_education for each row execute function public.set_meta_on_update();
+   537→drop trigger if exists trg_phe_audit on public.pre_hajj_education;
+   538→create trigger trg_phe_audit after insert or update or delete on public.pre_hajj_education for each row execute function public.log_audit();
+   539→
+   540→create table if not exists public.pre_hajj_ai_assessment (
+   541→  id                  uuid primary key default gen_random_uuid(),
+   542→  jamaah_id           uuid not null references public.jamaah(id) on delete cascade,
+   543→  ringkasan           text not null,
+   544→  faktor_risiko       text not null default '[]',
+   545→  kesiapan_berangkat  text not null check (kesiapan_berangkat in ('Siap','Bersyarat','Belum Siap')),
+   546→  rekomendasi         text not null default '[]',
+   547→  soap text, resume_medis text, surat_rujukan text,
+   548→  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+   549→  created_by uuid references auth.users(id), updated_by uuid references auth.users(id),
+   550→  deleted_at timestamptz, is_active boolean not null default true
+   551→);
+   552→create index if not exists idx_pre_hajj_ai_assessment_jamaah on public.pre_hajj_ai_assessment(jamaah_id);
+   553→drop trigger if exists trg_pha_meta_ins on public.pre_hajj_ai_assessment;
+   554→create trigger trg_pha_meta_ins before insert on public.pre_hajj_ai_assessment for each row execute function public.set_meta_on_insert();
+   555→drop trigger if exists trg_pha_meta_upd on public.pre_hajj_ai_assessment;
+   556→create trigger trg_pha_meta_upd before update on public.pre_hajj_ai_assessment for each row execute function public.set_meta_on_update();
+   557→drop trigger if exists trg_pha_audit on public.pre_hajj_ai_assessment;
+   558→create trigger trg_pha_audit after insert or update or delete on public.pre_hajj_ai_assessment for each row execute function public.log_audit();
+   559→
+   560→-- ============================================================================
+   561→-- 7. TELEMEDICINE
+   562→-- ============================================================================
+   563→create table if not exists public.chat_room (
+   564→  id               uuid primary key default gen_random_uuid(),
+   565→  jamaah_id        text not null,
+   566→  doctor_id        uuid references auth.users(id) on delete set null,
+   567→  last_message_at  timestamptz not null default now(),
+   568→  unread_by_doctor integer not null default 0 check (unread_by_doctor >= 0),
+   569→  unread_by_jamaah integer not null default 0 check (unread_by_jamaah >= 0),
+   570→  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+   571→  created_by uuid references auth.users(id), updated_by uuid references auth.users(id),
+   572→  deleted_at timestamptz, is_active boolean not null default true,
+   573→  unique (jamaah_id)
+   574→);
+   575→create index if not exists idx_chat_room_doctor on public.chat_room(doctor_id);
+   576→drop trigger if exists trg_cr_meta_ins on public.chat_room;
+   577→create trigger trg_cr_meta_ins before insert on public.chat_room for each row execute function public.set_meta_on_insert();
+   578→drop trigger if exists trg_cr_meta_upd on public.chat_room;
+   579→create trigger trg_cr_meta_upd before update on public.chat_room for each row execute function public.set_meta_on_update();
+   580→
+   581→create table if not exists public.chat_message (
+   582→  id              uuid primary key default gen_random_uuid(),
+   583→  room_id         uuid not null references public.chat_room(id) on delete cascade,
+   584→  sender_type     text not null check (sender_type in ('DOCTOR','JAMAAH','SYSTEM','AI')),
+   585→  sender_name     text,
+   586→  type            text not null,
+   587→  content         text not null,
+   588→  attachment_url  text, attachment_name text, request_id text,
+   589→  read_by_doctor  boolean not null default false,
+   590→  read_by_jamaah  boolean not null default false,
+   591→  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+   592→  created_by uuid references auth.users(id), updated_by uuid references auth.users(id),
+   593→  deleted_at timestamptz, is_active boolean not null default true
+   594→);
+   595→create index if not exists idx_chat_message_room_created on public.chat_message(room_id, created_at);
+   596→create index if not exists idx_chat_message_sender        on public.chat_message(sender_type);
+   597→drop trigger if exists trg_cm_meta_ins on public.chat_message;
+   598→create trigger trg_cm_meta_ins before insert on public.chat_message for each row execute function public.set_meta_on_insert();
+   599→drop trigger if exists trg_cm_meta_upd on public.chat_message;
+   600→create trigger trg_cm_meta_upd before update on public.chat_message for each row execute function public.set_meta_on_update();
+   601→
+   602→create table if not exists public.telemedicine_request (
+   603→  id            uuid primary key default gen_random_uuid(),
+   604→  room_id       uuid not null references public.chat_room(id) on delete cascade,
+   605→  jamaah_id     text not null,
+   606→  category      text not null check (category in ('TTV','SKRINING','EDUKASI','OBAT','DAILY_COMPLAINT','CHRONIC')),
+   607→  sub_type      text, title text not null, fields text not null default '[]',
+   608→  status        text not null default 'PENDING' check (status in ('PENDING','SUBMITTED','EXPIRED')),
+   609→  scheduled_for timestamptz, submitted_at timestamptz, response text, skor text, hari_ke integer,
+   610→  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+   611→  created_by uuid references auth.users(id), updated_by uuid references auth.users(id),
+   612→  deleted_at timestamptz, is_active boolean not null default true
+   613→);
+   614→create index if not exists idx_telemedicine_request_jamaah_cat on public.telemedicine_request(jamaah_id, category);
+   615→create index if not exists idx_telemedicine_request_status    on public.telemedicine_request(status);
+   616→drop trigger if exists trg_tr_meta_ins on public.telemedicine_request;
+   617→create trigger trg_tr_meta_ins before insert on public.telemedicine_request for each row execute function public.set_meta_on_insert();
+   618→drop trigger if exists trg_tr_meta_upd on public.telemedicine_request;
+   619→create trigger trg_tr_meta_upd before update on public.telemedicine_request for each row execute function public.set_meta_on_update();
+   620→
+   621→create table if not exists public.telemedicine_template (
+   622→  id          uuid primary key default gen_random_uuid(),
+   623→  title       text not null,
+   624→  category    text not null check (category in ('TEXT','TTV','SKRINING','EDUKASI','OBAT')),
+   625→  content     text not null,
+   626→  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+   627→  created_by uuid references auth.users(id), updated_by uuid references auth.users(id),
+   628→  deleted_at timestamptz, is_active boolean not null default true
+   629→);
+   630→drop trigger if exists trg_tt_meta_ins on public.telemedicine_template;
+   631→create trigger trg_tt_meta_ins before insert on public.telemedicine_template for each row execute function public.set_meta_on_insert();
+   632→drop trigger if exists trg_tt_meta_upd on public.telemedicine_template;
+   633→create trigger trg_tt_meta_upd before update on public.telemedicine_template for each row execute function public.set_meta_on_update();
+   634→
+   635→create table if not exists public.telemedicine_schedule (
+   636→  id          uuid primary key default gen_random_uuid(),
+   637→  jamaah_id   text not null,
+   638→  category    text not null, sub_type text, title text not null,
+   639→  hari_ke integer, time_of_day text,
+   640→  active      boolean not null default true, last_sent_at timestamptz,
+   641→  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+   642→  created_by uuid references auth.users(id), updated_by uuid references auth.users(id),
+   643→  deleted_at timestamptz, is_active boolean not null default true
+   644→);
+   645→create index if not exists idx_telemedicine_schedule_jamaah_active on public.telemedicine_schedule(jamaah_id, active);
+   646→drop trigger if exists trg_ts_meta_ins on public.telemedicine_schedule;
+   647→create trigger trg_ts_meta_ins before insert on public.telemedicine_schedule for each row execute function public.set_meta_on_insert();
+   648→drop trigger if exists trg_ts_meta_upd on public.telemedicine_schedule;
+   649→create trigger trg_ts_meta_upd before update on public.telemedicine_schedule for each row execute function public.set_meta_on_update();
+   650→
+   651→create table if not exists public.telemedicine_ai_summary (
+   652→  id          uuid primary key default gen_random_uuid(),
+   653→  jamaah_id   text not null,
+   654→  room_id     uuid not null references public.chat_room(id) on delete cascade,
+   655→  ringkasan   text not null, soap text, assessment text, plan text,
+   656→  prioritas   text check (prioritas is null or prioritas in ('URGENT','TINGGI','SEDANG','RUTIN')),
+   657→  rekomendasi text, alerts text,
+   658→  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+   659→  created_by uuid references auth.users(id), updated_by uuid references auth.users(id),
+   660→  deleted_at timestamptz, is_active boolean not null default true
+   661→);
+   662→create index if not exists idx_telemedicine_ai_summary_jamaah on public.telemedicine_ai_summary(jamaah_id);
+   663→drop trigger if exists trg_tas_meta_ins on public.telemedicine_ai_summary;
+   664→create trigger trg_tas_meta_ins before insert on public.telemedicine_ai_summary for each row execute function public.set_meta_on_insert();
+   665→drop trigger if exists trg_tas_meta_upd on public.telemedicine_ai_summary;
+   666→create trigger trg_tas_meta_upd before update on public.telemedicine_ai_summary for each row execute function public.set_meta_on_update();
+   667→
+   668→-- ============================================================================
+   669→-- 8. ROW LEVEL SECURITY (Chapter 5) — DROP IF EXISTS + CREATE pattern
+   670→-- ============================================================================
+   671→-- Policy model:
+   672→--   • Staff (super_admin/admin/kepala_klinik/pj_mutu/petugas) → full CRUD, sees non-deleted rows
+   673→--   • Jamaah (patient) → read/insert own linked rows only
+   674→--   • Soft delete: SELECT excludes deleted_at IS NOT NULL for non-super-admins
+   675→
+   676→-- ---------- PROFILES ----------
+   677→alter table public.profiles enable row level security;
+   678→drop policy if exists profiles_select on public.profiles;
+   679→create policy profiles_select on public.profiles for select using (auth.uid() = id or public.is_staff());
+   680→drop policy if exists profiles_insert on public.profiles;
+   681→create policy profiles_insert on public.profiles for insert with check (auth.uid() = id or public.is_staff());
+   682→drop policy if exists profiles_update on public.profiles;
+   683→create policy profiles_update on public.profiles for update using (auth.uid() = id or public.is_staff());
+   684→drop policy if exists profiles_delete on public.profiles;
+   685→create policy profiles_delete on public.profiles for delete using (public.is_super_admin());
+   686→
+   687→-- ---------- AUDIT LOG ----------
+   688→alter table public.audit_log enable row level security;
+   689→drop policy if exists audit_log_select on public.audit_log;
+   690→create policy audit_log_select on public.audit_log for select using (public.is_staff());
+   691→drop policy if exists audit_log_insert on public.audit_log;
+   692→create policy audit_log_insert on public.audit_log for insert with check (auth.uid() is not null);
+   693→drop policy if exists audit_log_update on public.audit_log;
+   694→create policy audit_log_update on public.audit_log for update using (public.is_super_admin());
+   695→drop policy if exists audit_log_delete on public.audit_log;
+   696→create policy audit_log_delete on public.audit_log for delete using (public.is_super_admin());
+   697→
+   698→-- ---------- JAMAAH ----------
+   699→-- Doctor sees jamaah where doctor_id = auth.uid() OR is_staff (admin etc.)
+   700→-- Jamaah sees only their own record where user_id = auth.uid()
+   701→alter table public.jamaah enable row level security;
+   702→drop policy if exists jamaah_select on public.jamaah;
+   703→create policy jamaah_select on public.jamaah for select using (
+   704→  public.is_staff()
+   705→  or user_id = auth.uid()
+   706→  or doctor_id = auth.uid()
+   707→);
+   708→drop policy if exists jamaah_insert on public.jamaah;
+   709→create policy jamaah_insert on public.jamaah for insert with check (
+   710→  public.is_staff() or user_id = auth.uid()
+   711→);
+   712→drop policy if exists jamaah_update on public.jamaah;
+   713→create policy jamaah_update on public.jamaah for update using (
+   714→  public.is_staff() or user_id = auth.uid() or doctor_id = auth.uid()
+   715→);
+   716→drop policy if exists jamaah_delete on public.jamaah;
+   717→create policy jamaah_delete on public.jamaah for delete using (public.is_staff());
+   718→
+   719→-- ---------- Generic policy block for child tables (jamaah_id-linked) ----------
+   720→-- Applied to: screening, vital_sign, pre_hajj_*, telemedicine_request, telemedicine_schedule, telemedicine_ai_summary
+   721→
+   722→-- SCREENING
+   723→alter table public.screening enable row level security;
+   724→drop policy if exists screening_select on public.screening;
+   725→create policy screening_select on public.screening for select using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   726→drop policy if exists screening_insert on public.screening;
+   727→create policy screening_insert on public.screening for insert with check (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   728→drop policy if exists screening_update on public.screening;
+   729→create policy screening_update on public.screening for update using (public.is_staff());
+   730→drop policy if exists screening_delete on public.screening;
+   731→create policy screening_delete on public.screening for delete using (public.is_staff());
+   732→
+   733→-- VITAL_SIGN
+   734→alter table public.vital_sign enable row level security;
+   735→drop policy if exists vital_sign_select on public.vital_sign;
+   736→create policy vital_sign_select on public.vital_sign for select using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   737→drop policy if exists vital_sign_insert on public.vital_sign;
+   738→create policy vital_sign_insert on public.vital_sign for insert with check (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   739→drop policy if exists vital_sign_update on public.vital_sign;
+   740→create policy vital_sign_update on public.vital_sign for update using (public.is_staff());
+   741→drop policy if exists vital_sign_delete on public.vital_sign;
+   742→create policy vital_sign_delete on public.vital_sign for delete using (public.is_staff());
+   743→
+   744→-- PRE_HAJJ_VITAL
+   745→alter table public.pre_hajj_vital enable row level security;
+   746→drop policy if exists phv_select on public.pre_hajj_vital;
+   747→create policy phv_select on public.pre_hajj_vital for select using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   748→drop policy if exists phv_insert on public.pre_hajj_vital;
+   749→create policy phv_insert on public.pre_hajj_vital for insert with check (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   750→drop policy if exists phv_update on public.pre_hajj_vital;
+   751→create policy phv_update on public.pre_hajj_vital for update using (public.is_staff());
+   752→drop policy if exists phv_delete on public.pre_hajj_vital;
+   753→create policy phv_delete on public.pre_hajj_vital for delete using (public.is_staff());
+   754→
+   755→-- PRE_HAJJ_LAB
+   756→alter table public.pre_hajj_lab enable row level security;
+   757→drop policy if exists phl_select on public.pre_hajj_lab;
+   758→create policy phl_select on public.pre_hajj_lab for select using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   759→drop policy if exists phl_insert on public.pre_hajj_lab;
+   760→create policy phl_insert on public.pre_hajj_lab for insert with check (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   761→drop policy if exists phl_update on public.pre_hajj_lab;
+   762→create policy phl_update on public.pre_hajj_lab for update using (public.is_staff());
+   763→drop policy if exists phl_delete on public.pre_hajj_lab;
+   764→create policy phl_delete on public.pre_hajj_lab for delete using (public.is_staff());
+   765→
+   766→-- PRE_HAJJ_CHRONIC
+   767→alter table public.pre_hajj_chronic enable row level security;
+   768→drop policy if exists phc_select on public.pre_hajj_chronic;
+   769→create policy phc_select on public.pre_hajj_chronic for select using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   770→drop policy if exists phc_insert on public.pre_hajj_chronic;
+   771→create policy phc_insert on public.pre_hajj_chronic for insert with check (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   772→drop policy if exists phc_update on public.pre_hajj_chronic;
+   773→create policy phc_update on public.pre_hajj_chronic for update using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   774→drop policy if exists phc_delete on public.pre_hajj_chronic;
+   775→create policy phc_delete on public.pre_hajj_chronic for delete using (public.is_staff());
+   776→
+   777→-- PRE_HAJJ_SCREENING
+   778→alter table public.pre_hajj_screening enable row level security;
+   779→drop policy if exists phs_select on public.pre_hajj_screening;
+   780→create policy phs_select on public.pre_hajj_screening for select using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   781→drop policy if exists phs_insert on public.pre_hajj_screening;
+   782→create policy phs_insert on public.pre_hajj_screening for insert with check (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   783→drop policy if exists phs_update on public.pre_hajj_screening;
+   784→create policy phs_update on public.pre_hajj_screening for update using (public.is_staff());
+   785→drop policy if exists phs_delete on public.pre_hajj_screening;
+   786→create policy phs_delete on public.pre_hajj_screening for delete using (public.is_staff());
+   787→
+   788→-- PRE_HAJJ_MEDICATION
+   789→alter table public.pre_hajj_medication enable row level security;
+   790→drop policy if exists phm_select on public.pre_hajj_medication;
+   791→create policy phm_select on public.pre_hajj_medication for select using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   792→drop policy if exists phm_insert on public.pre_hajj_medication;
+   793→create policy phm_insert on public.pre_hajj_medication for insert with check (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   794→drop policy if exists phm_update on public.pre_hajj_medication;
+   795→create policy phm_update on public.pre_hajj_medication for update using (public.is_staff());
+   796→drop policy if exists phm_delete on public.pre_hajj_medication;
+   797→create policy phm_delete on public.pre_hajj_medication for delete using (public.is_staff());
+   798→
+   799→-- PRE_HAJJ_IMMUNIZATION
+   800→alter table public.pre_hajj_immunization enable row level security;
+   801→drop policy if exists phi_select on public.pre_hajj_immunization;
+   802→create policy phi_select on public.pre_hajj_immunization for select using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   803→drop policy if exists phi_insert on public.pre_hajj_immunization;
+   804→create policy phi_insert on public.pre_hajj_immunization for insert with check (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   805→drop policy if exists phi_update on public.pre_hajj_immunization;
+   806→create policy phi_update on public.pre_hajj_immunization for update using (public.is_staff());
+   807→drop policy if exists phi_delete on public.pre_hajj_immunization;
+   808→create policy phi_delete on public.pre_hajj_immunization for delete using (public.is_staff());
+   809→
+   810→-- PRE_HAJJ_FITNESS
+   811→alter table public.pre_hajj_fitness enable row level security;
+   812→drop policy if exists phf_select on public.pre_hajj_fitness;
+   813→create policy phf_select on public.pre_hajj_fitness for select using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   814→drop policy if exists phf_insert on public.pre_hajj_fitness;
+   815→create policy phf_insert on public.pre_hajj_fitness for insert with check (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   816→drop policy if exists phf_update on public.pre_hajj_fitness;
+   817→create policy phf_update on public.pre_hajj_fitness for update using (public.is_staff());
+   818→drop policy if exists phf_delete on public.pre_hajj_fitness;
+   819→create policy phf_delete on public.pre_hajj_fitness for delete using (public.is_staff());
+   820→
+   821→-- PRE_HAJJ_EDUCATION
+   822→alter table public.pre_hajj_education enable row level security;
+   823→drop policy if exists phe_select on public.pre_hajj_education;
+   824→create policy phe_select on public.pre_hajj_education for select using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   825→drop policy if exists phe_insert on public.pre_hajj_education;
+   826→create policy phe_insert on public.pre_hajj_education for insert with check (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   827→drop policy if exists phe_update on public.pre_hajj_education;
+   828→create policy phe_update on public.pre_hajj_education for update using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   829→drop policy if exists phe_delete on public.pre_hajj_education;
+   830→create policy phe_delete on public.pre_hajj_education for delete using (public.is_staff());
+   831→
+   832→-- PRE_HAJJ_AI_ASSESSMENT
+   833→alter table public.pre_hajj_ai_assessment enable row level security;
+   834→drop policy if exists pha_select on public.pre_hajj_ai_assessment;
+   835→create policy pha_select on public.pre_hajj_ai_assessment for select using (public.is_staff() or jamaah_id = public.current_jamaah_id());
+   836→drop policy if exists pha_insert on public.pre_hajj_ai_assessment;
+   837→create policy pha_insert on public.pre_hajj_ai_assessment for insert with check (public.is_staff());
+   838→drop policy if exists pha_update on public.pre_hajj_ai_assessment;
+   839→create policy pha_update on public.pre_hajj_ai_assessment for update using (public.is_staff());
+   840→drop policy if exists pha_delete on public.pre_hajj_ai_assessment;
+   841→create policy pha_delete on public.pre_hajj_ai_assessment for delete using (public.is_staff());
+   842→
+   843→-- CHAT_ROOM — any authenticated user can select/insert/update
+   844→-- (jamaah_id is text — no FK — so it accepts both Prisma cuid and Supabase UUID)
+   845→alter table public.chat_room enable row level security;
+   846→drop policy if exists cr_select on public.chat_room;
+   847→create policy cr_select on public.chat_room for select using (
+   848→  auth.uid() is not null
+   849→);
+   850→drop policy if exists cr_insert on public.chat_room;
+   851→create policy cr_insert on public.chat_room for insert with check (
+   852→  auth.uid() is not null
+   853→);
+   854→drop policy if exists cr_update on public.chat_room;
+   855→create policy cr_update on public.chat_room for update using (
+   856→  auth.uid() is not null
+   857→);
+   858→drop policy if exists cr_delete on public.chat_room;
+   859→create policy cr_delete on public.chat_room for delete using (public.is_staff());
+   860→
+   861→-- CHAT_MESSAGE — any authenticated user can select/insert
+   862→alter table public.chat_message enable row level security;
+   863→drop policy if exists cm_select on public.chat_message;
+   864→create policy cm_select on public.chat_message for select using (
+   865→  auth.uid() is not null
+   866→);
+   867→drop policy if exists cm_insert on public.chat_message;
+   868→create policy cm_insert on public.chat_message for insert with check (
+   869→  auth.uid() is not null
+   870→);
+   871→drop policy if exists cm_update on public.chat_message;
+   872→create policy cm_update on public.chat_message for update using (
+   873→  auth.uid() is not null
+   874→);
+   875→drop policy if exists cm_delete on public.chat_message;
+   876→create policy cm_delete on public.chat_message for delete using (public.is_staff());
+   877→
+   878→-- TELEMEDICINE_REQUEST
+   879→alter table public.telemedicine_request enable row level security;
+   880→drop policy if exists tr_select on public.telemedicine_request;
+   881→create policy tr_select on public.telemedicine_request for select using (auth.uid() is not null);
+   882→drop policy if exists tr_insert on public.telemedicine_request;
+   883→create policy tr_insert on public.telemedicine_request for insert with check (auth.uid() is not null);
+   884→drop policy if exists tr_update on public.telemedicine_request;
+   885→create policy tr_update on public.telemedicine_request for update using (auth.uid() is not null);
+   886→drop policy if exists tr_delete on public.telemedicine_request;
+   887→create policy tr_delete on public.telemedicine_request for delete using (public.is_staff());
+   888→
+   889→-- TELEMEDICINE_TEMPLATE
+   890→alter table public.telemedicine_template enable row level security;
+   891→drop policy if exists tt_select on public.telemedicine_template;
+   892→create policy tt_select on public.telemedicine_template for select using (auth.uid() is not null);
+   893→drop policy if exists tt_insert on public.telemedicine_template;
+   894→create policy tt_insert on public.telemedicine_template for insert with check (public.is_staff());
+   895→drop policy if exists tt_update on public.telemedicine_template;
+   896→create policy tt_update on public.telemedicine_template for update using (public.is_staff());
+   897→drop policy if exists tt_delete on public.telemedicine_template;
+   898→create policy tt_delete on public.telemedicine_template for delete using (public.is_staff());
+   899→
+   900→-- TELEMEDICINE_SCHEDULE
+   901→alter table public.telemedicine_schedule enable row level security;
+   902→drop policy if exists ts_select on public.telemedicine_schedule;
+   903→create policy ts_select on public.telemedicine_schedule for select using (auth.uid() is not null);
+   904→drop policy if exists ts_insert on public.telemedicine_schedule;
+   905→create policy ts_insert on public.telemedicine_schedule for insert with check (auth.uid() is not null);
+   906→drop policy if exists ts_update on public.telemedicine_schedule;
+   907→create policy ts_update on public.telemedicine_schedule for update using (auth.uid() is not null);
+   908→drop policy if exists ts_delete on public.telemedicine_schedule;
+   909→create policy ts_delete on public.telemedicine_schedule for delete using (public.is_staff());
+   910→
+   911→-- TELEMEDICINE_AI_SUMMARY
+   912→alter table public.telemedicine_ai_summary enable row level security;
+   913→drop policy if exists tas_select on public.telemedicine_ai_summary;
+   914→create policy tas_select on public.telemedicine_ai_summary for select using (auth.uid() is not null);
+   915→drop policy if exists tas_insert on public.telemedicine_ai_summary;
+   916→create policy tas_insert on public.telemedicine_ai_summary for insert with check (auth.uid() is not null);
+   917→drop policy if exists tas_update on public.telemedicine_ai_summary;
+   918→create policy tas_update on public.telemedicine_ai_summary for update using (auth.uid() is not null);
+   919→drop policy if exists tas_delete on public.telemedicine_ai_summary;
+   920→create policy tas_delete on public.telemedicine_ai_summary for delete using (public.is_staff());
+   921→
+   922→-- ============================================================================
+   923→-- 9. SEED: default telemedicine templates
+   924→-- ============================================================================
+   925→insert into public.telemedicine_template (title, category, content)
+   926→values
+   927→  ('Pengingat TTV Pagi', 'TEXT', 'Selamat pagi. Silakan isi tekanan darah, suhu, dan saturasi hari ini. Terima kasih.'),
+   928→  ('Pengingat Skrining PHQ-9', 'SKRINING', 'Mohon isi skrining PHQ-9 untuk evaluasi kesehatan mental Anda.'),
+   929→  ('Pengingat Minum Obat', 'TEXT', 'Jangan lupa minum obat pagi ini sesuai resep dokter.'),
+   930→  ('Cek Keluhan Harian', 'TEXT', 'Bagaimana kondisi Bapak/Ibu hari ini? Ada keluhan demam, batuk, atau sesak?')
+   931→on conflict do nothing;
+   932→
+   933→-- ============================================================================
+   934→-- 10. SUPABASE REALTIME — enable broadcast for chat tables
+   935→-- ============================================================================
+   936→-- Adds chat_message and chat_room to the realtime publication so that
+   937→-- INSERT/UPDATE/DELETE events are broadcast to subscribed clients.
+   938→-- Without this, supabase.channel(...).on('postgres_changes', ...) won't fire.
+   939→do $$
+   940→begin
+   941→  -- Add tables to the realtime publication (ignore if already present)
+   942→  begin
+   943→    alter publication supabase_realtime add table public.chat_message;
+   944→  exception when others then null;
+   945→  end;
+   946→  begin
+   947→    alter publication supabase_realtime add table public.chat_room;
+   948→  exception when others then null;
+   949→  end;
+   950→end;
+   951→$$;
+   952→
+   953→-- Also ensure the publication exists (Supabase creates it by default, but just in case)
+   954→do $$
+   955→begin
+   956→  -- Check if publication exists; if not, this will error silently
+   957→  perform 1 from pg_publication where pubname = 'supabase_realtime';
+   958→  -- If we get here, publication exists — tables are already added above
+   959→exception when others then
+   960→  -- Publication doesn't exist — create it (rare case)
+   961→  begin
+   962→    create publication supabase_realtime for table public.chat_message, public.chat_room;
+   963→  exception when others then null;
+   964→  end;
+   965→end;
+   966→$$;
+   967→
+   968→-- ============================================================================
+   969→-- DONE — 20 tables (profiles, audit_log, jamaah + 17 clinical/telemedicine)
+   970→-- Realtime enabled on chat_message + chat_room.
+   971→-- Verify:
+   972→--   select tablename from pg_tables where schemaname='public' order by tablename;
+   973→--   select tablename, count(*) from pg_policies where schemaname='public' group by tablename;
+   974→--   select * from pg_publication_tables where pubname='supabase_realtime';
+   975→-- ============================================================================

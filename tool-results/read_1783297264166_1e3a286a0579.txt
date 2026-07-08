@@ -1,0 +1,537 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import * as React from "react";
+     4→     4→import {
+     5→     5→  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+     6→     6→  DialogFooter,
+     7→     7→} from "@/components/ui/dialog";
+     8→     8→import { Button } from "@/components/ui/button";
+     9→     9→import { Textarea } from "@/components/ui/textarea";
+    10→    10→import { Label } from "@/components/ui/label";
+    11→    11→import {
+    12→    12→  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+    13→    13→} from "@/components/ui/select";
+    14→    14→import { Loader2, Save } from "lucide-react";
+    15→    15→import { toast } from "sonner";
+    16→    16→import { SCREENING_META } from "@/lib/screening-meta";
+    17→    17→import type { JenisSkrining } from "@/lib/types";
+    18→    18→import {
+    19→    19→  YesNoField, ScoreRadioGroup, NumberField, SectionLabel, getIcon,
+    20→    20→} from "./shared";
+    21→    21→
+    22→    22→interface Props {
+    23→    23→  jamaahId: string;
+    24→    24→  jenis: JenisSkrining | null;
+    25→    25→  open: boolean;
+    26→    26→  onOpenChange: (v: boolean) => void;
+    27→    27→  onSaved: () => void;
+    28→    28→}
+    29→    29→
+    30→    30→const HARI_OPTS = [
+    31→    31→  { value: "1", label: "Hari 1 — Skrining awal" },
+    32→    32→  { value: "7", label: "Hari 7 — Monitoring infeksi" },
+    33→    33→  { value: "14", label: "Hari 14 — Monitoring kronis" },
+    34→    34→  { value: "30", label: "Hari 30 — Evaluasi komprehensif" },
+    35→    35→];
+    36→    36→
+    37→    37→export function ScreeningDialog({ jamaahId, jenis, open, onOpenChange, onSaved }: Props) {
+    38→    38→  const [data, setData] = React.useState<Record<string, unknown>>({});
+    39→    39→  const [catatan, setCatatan] = React.useState("");
+    40→    40→  const [hariKe, setHariKe] = React.useState("1");
+    41→    41→  const [saving, setSaving] = React.useState(false);
+    42→    42→
+    43→    43→  React.useEffect(() => {
+    44→    44→    if (open) {
+    45→    45→      setData({});
+    46→    46→      setCatatan("");
+    47→    47→      setHariKe("1");
+    48→    48→    }
+    49→    49→  }, [open, jenis]);
+    50→    50→
+    51→    51→  if (!jenis) return null;
+    52→    52→  const meta = SCREENING_META[jenis];
+    53→    53→  const Icon = getIcon(meta.icon);
+    54→    54→
+    55→    55→  const set = (k: string, v: unknown) => setData((d) => ({ ...d, [k]: v }));
+    56→    56→  const b = (k: string) => Boolean(data[k]);
+    57→    57→  const n = (k: string) => (data[k] === undefined || data[k] === "" ? "" : String(data[k]));
+    58→    58→
+    59→    59→  // === Skoring per jenis ===
+    60→    60→  function computeSkor(j: JenisSkrining, d: Record<string, unknown>): string {
+    61→    61→    const bool = (v: unknown) => v === true;
+    62→    62→    switch (j) {
+    63→    63→      case "INFECTIOUS": {
+    64→    64→        const demam = bool(d.ispa_demam) || bool(d.covid_demam) || bool(d.mers_demam);
+    65→    65→        const sesak = bool(d.ispa_sesak) || bool(d.covid_sesak) || bool(d.mers_sesak) || bool(d.pneu_napasCepat);
+    66→    66→        const mersKontak = bool(d.mers_kontak);
+    67→    67→        if ((demam && sesak) || (mersKontak && (demam || bool(d.mers_batuk))) || bool(d.pneu_napasCepat)) return "Tinggi";
+    68→    68→        const gejala = Object.values(d).filter(bool).length;
+    69→    69→        return gejala > 0 ? "Sedang" : "Rendah";
+    70→    70→      }
+    71→    71→      case "CHRONIC": {
+    72→    72→        if (bool(d.jantung_nyeriDada) || (bool(d.jantung_sesak) && bool(d.jantung_bengkak)) || bool(d.dm_hipo)) return "Tidak Terkontrol";
+    73→    73→        const gd = d.dm_gulaDarah !== undefined && d.dm_gulaDarah !== "" ? Number(d.dm_gulaDarah) : NaN;
+    74→    74→        if (!Number.isNaN(gd) && gd >= 250) return "Tidak Terkontrol";
+    75→    75→        if (bool(d.ht_tidakPatuh) || bool(d.dm_tidakPatuh) || bool(d.ppok_sesak) || bool(d.ginjal_edema) || (!Number.isNaN(gd) && gd >= 180)) return "Perlu Pemantauan";
+    76→    76→        return "Stabil";
+    77→    77→      }
+    78→    78→      case "FRAILTY": {
+    79→    79→        const t = ["fatigue", "resistance", "ambulation", "illness", "lossWeight"].reduce((a, k) => a + (bool(d[k]) ? 1 : 0), 0);
+    80→    80→        if (t === 0) return "Robust";
+    81→    81→        if (t <= 2) return "Pre-frail";
+    82→    82→        return "Frail";
+    83→    83→      }
+    84→    84→      case "FALL_RISK": {
+    85→    85→        const t = ["jatuhSetahun", "gangguanKeseimbangan", "alatBantu"].reduce((a, k) => a + (bool(d[k]) ? 1 : 0), 0);
+    86→    86→        if (t === 0) return "Rendah";
+    87→    87→        if (t === 1) return "Sedang";
+    88→    88→        return "Tinggi";
+    89→    89→      }
+    90→    90→      case "NUTRITION": {
+    91→    91→        const keys = ["nafsuMakan", "penurunanBB", "mobilitas", "stresAkut", "neuropsikologis", "imt"];
+    92→    92→        const t = keys.reduce((a, k) => a + (typeof d[k] === "number" ? (d[k] as number) : 0), 0);
+    93→    93→        if (t >= 12) return "Normal";
+    94→    94→        if (t >= 8) return "Risiko Malnutrisi";
+    95→    95→        return "Malnutrisi";
+    96→    96→      }
+    97→    97→      case "MENTAL": {
+    98→    98→        const phqKeys = ["phq9_1", "phq9_2", "phq9_3", "phq9_4", "phq9_5", "phq9_6", "phq9_7", "phq9_8"];
+    99→    99→        const phq = phqKeys.reduce((a, k) => a + (typeof d[k] === "number" ? (d[k] as number) : 0), 0);
+   100→   100→        if (phq <= 4) return "Minimal";
+   101→   101→        if (phq <= 9) return "Ringan";
+   102→   102→        if (phq <= 14) return "Sedang";
+   103→   103→        if (phq <= 19) return "Sedang-Berat";
+   104→   104→        return "Berat";
+   105→   105→      }
+   106→   106→      case "SLEEP": {
+   107→   107→        const t = ["sulitTidur", "seringTerbangun", "tidakNyenyak"].reduce((a, k) => a + (typeof d[k] === "number" ? (d[k] as number) : 0), 0);
+   108→   108→        if (t <= 4) return "Tidak Ada Insomnia";
+   109→   109→        if (t <= 6) return "Insomnia Subklinis";
+   110→   110→        if (t <= 9) return "Insomnia Sedang";
+   111→   111→        return "Insomnia Berat";
+   112→   112→      }
+   113→   113→      case "ACTIVITY": {
+   114→   114→        const mandiri = bool(d.jalanMandiri);
+   115→   115→        const normal = bool(d.aktivitasNormal);
+   116→   116→        const butuh = bool(d.butuhBantuan);
+   117→   117→        if (mandiri && normal && !butuh) return "Mandiri";
+   118→   118→        if (butuh && (mandiri || normal)) return "Bantuan Sebagian";
+   119→   119→        return "Ketergantungan";
+   120→   120→      }
+   121→   121→      case "SPIRITUAL": {
+   122→   122→        if (bool(d.ibadahRutin) && bool(d.ketenangan) && !bool(d.hambatanIbadah)) return "Baik";
+   123→   123→        return "Perlu Pendampingan";
+   124→   124→      }
+   125→   125→      case "FAMILY_APGAR": {
+   126→   126→        const keys = ["adaptation", "partnership", "growth", "affection", "resolve"];
+   127→   127→        const t = keys.reduce((a, k) => a + (typeof d[k] === "number" ? (d[k] as number) : 0), 0);
+   128→   128→        if (t >= 7) return "Fungsional";
+   129→   129→        if (t >= 4) return "Disfungsi Sedang";
+   130→   130→        return "Disfungsi Berat";
+   131→   131→      }
+   132→   132→      case "FOLLOWUP": {
+   133→   133→        const any = ["kontrolDokter", "homeVisit", "konsultasiGizi", "rehabilitasi", "konselingPsikologis"].some((k) => bool(d[k]));
+   134→   134→        return any ? "Perlu Tindak Lanjut" : "Tidak Ada";
+   135→   135→      }
+   136→   136→      default:
+   137→   137→        return "";
+   138→   138→    }
+   139→   139→  }
+   140→   140→
+   141→   141→  const skor = computeSkor(jenis, data);
+   142→   142→
+   143→   143→  async function handleSave() {
+   144→   144→    setSaving(true);
+   145→   145→    try {
+   146→   146→      const { validateJamaahId } = await import("@/lib/validate-jamaah-id");
+   147→   147→      const idCheck = validateJamaahId(jamaahId);
+   148→   148→      if (!idCheck.valid) {
+   149→   149→        console.error("[Screening] Invalid jamaah_id:", idCheck.error);
+   150→   150→        toast.error(idCheck.error || "jamaah_id tidak valid");
+   151→   151→        setSaving(false);
+   152→   152→        return;
+   153→   153→      }
+   154→   154→      const { createClient } = await import("@/lib/supabase/client");
+   155→   155→      const supabase = createClient();
+   156→   156→      const payload = {
+   157→   157→        jamaah_id: jamaahId,
+   158→   158→        jenis,
+   159→   159→        data: JSON.stringify(data),
+   160→   160→        skor,
+   161→   161→        catatan: catatan || null,
+   162→   162→        hari_ke: Number(hariKe),
+   163→   163→      };
+   164→   164→      console.log("Saving Screening to Supabase...");
+   165→   165→      console.log("Payload:", payload);
+   166→   166→      const { data: resData, error } = await supabase.from("screening").insert(payload);
+   167→   167→      console.log("Supabase Response:", resData);
+   168→   168→      console.log("Supabase Error:", error);
+   169→   169→      if (error) {
+   170→   170→        console.error("[Screening] INSERT failed:", error);
+   171→   171→        toast.error(`Gagal menyimpan skrining: ${error.message}`);
+   172→   172→        return;
+   173→   173→      }
+   174→   174→      toast.success(`Skrining ${meta.judul} tersimpan di Supabase — skor: ${skor}`);
+   175→   175→      onSaved();
+   176→   176→      onOpenChange(false);
+   177→   177→    } catch (err) {
+   178→   178→      console.error("[Screening] Exception:", err);
+   179→   179→      toast.error(`Exception: ${err instanceof Error ? err.message : String(err)}`);
+   180→   180→    } finally {
+   181→   181→      setSaving(false);
+   182→   182→    }
+   183→   183→  }
+   184→   184→
+   185→   185→  return (
+   186→   186→    <Dialog open={open} onOpenChange={onOpenChange}>
+   187→   187→      <DialogContent className="max-h-[92vh] overflow-y-auto scrollbar-thin sm:max-w-2xl">
+   188→   188→        <DialogHeader>
+   189→   189→          <div className="flex items-center gap-3">
+   190→   190→            <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+   191→   191→              <Icon className="h-5 w-5" />
+   192→   192→            </span>
+   193→   193→            <div>
+   194→   194→              <DialogTitle className="text-lg">{meta.judul}</DialogTitle>
+   195→   195→              <DialogDescription>{meta.singkat}</DialogDescription>
+   196→   196→            </div>
+   197→   197→          </div>
+   198→   198→        </DialogHeader>
+   199→   199→
+   200→   200→        <div className="space-y-4">
+   201→   201→          {/* Form per jenis */}
+   202→   202→          <FormBody jenis={jenis} data={data} set={set} b={b} n={n} />
+   203→   203→
+   204→   204→          <div className="grid gap-3 sm:grid-cols-2">
+   205→   205→            <div>
+   206→   206→              <Label className="mb-1 block text-xs font-medium text-muted-foreground">Jadwal Monitoring</Label>
+   207→   207→              <Select value={hariKe} onValueChange={setHariKe}>
+   208→   208→                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+   209→   209→                <SelectContent>
+   210→   210→                  {HARI_OPTS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+   211→   211→                </SelectContent>
+   212→   212→              </Select>
+   213→   213→            </div>
+   214→   214→            <div className="flex items-end">
+   215→   215→              <div className="w-full rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+   216→   216→                <p className="text-xs text-muted-foreground">Skor otomatis</p>
+   217→   217→                <p className="text-sm font-bold text-primary">{skor}</p>
+   218→   218→              </div>
+   219→   219→            </div>
+   220→   220→          </div>
+   221→   221→
+   222→   222→          <div>
+   223→   223→            <Label className="mb-1 block text-xs font-medium text-muted-foreground">Catatan klinis (opsional)</Label>
+   224→   224→            <Textarea value={catatan} onChange={(e) => setCatatan(e.target.value)} rows={2} placeholder="Catatan temuan klinis…" />
+   225→   225→          </div>
+   226→   226→        </div>
+   227→   227→
+   228→   228→        <DialogFooter>
+   229→   229→          <Button variant="outline" onClick={() => onOpenChange(false)}>Batal</Button>
+   230→   230→          <Button onClick={handleSave} disabled={saving}>
+   231→   231→            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+   232→   232→            Simpan Skrining
+   233→   233→          </Button>
+   234→   234→        </DialogFooter>
+   235→   235→      </DialogContent>
+   236→   236→    </Dialog>
+   237→   237→  );
+   238→   238→}
+   239→   239→
+   240→   240→// ===== Body per jenis =====
+   241→   241→type SetFn = (k: string, v: unknown) => void;
+   242→   242→interface FormBodyProps {
+   243→   243→  jenis: JenisSkrining;
+   244→   244→  data: Record<string, unknown>;
+   245→   245→  set: SetFn;
+   246→   246→  b: (k: string) => boolean;
+   247→   247→  n: (k: string) => string;
+   248→   248→}
+   249→   249→
+   250→   250→function FormBody({ jenis, data, set, b, n }: FormBodyProps) {
+   251→   251→  switch (jenis) {
+   252→   252→    case "INFECTIOUS":
+   253→   253→      return (
+   254→   254→        <div className="space-y-4">
+   255→   255→          <div>
+   256→   256→            <SectionLabel>Gejala ISPA</SectionLabel>
+   257→   257→            <div className="grid gap-2 sm:grid-cols-2">
+   258→   258→              <YesNoField label="Demam" checked={b("ispa_demam")} onChange={(v) => set("ispa_demam", v)} />
+   259→   259→              <YesNoField label="Batuk" checked={b("ispa_batuk")} onChange={(v) => set("ispa_batuk", v)} />
+   260→   260→              <YesNoField label="Pilek" checked={b("ispa_pilek")} onChange={(v) => set("ispa_pilek", v)} />
+   261→   261→              <YesNoField label="Sakit tenggorokan" checked={b("ispa_tenggorok")} onChange={(v) => set("ispa_tenggorok", v)} />
+   262→   262→              <YesNoField label="Sesak napas" checked={b("ispa_sesak")} onChange={(v) => set("ispa_sesak", v)} />
+   263→   263→            </div>
+   264→   264→          </div>
+   265→   265→          <div>
+   266→   266→            <SectionLabel>Gejala Pneumonia</SectionLabel>
+   267→   267→            <div className="grid gap-2 sm:grid-cols-2">
+   268→   268→              <YesNoField label="Napas cepat" checked={b("pneu_napasCepat")} onChange={(v) => set("pneu_napasCepat", v)} />
+   269→   269→              <YesNoField label="Nyeri dada" checked={b("pneu_nyeriDada")} onChange={(v) => set("pneu_nyeriDada", v)} />
+   270→   270→              <YesNoField label="Batuk berdahak" checked={b("pneu_batukDahak")} onChange={(v) => set("pneu_batukDahak", v)} />
+   271→   271→            </div>
+   272→   272→          </div>
+   273→   273→          <div>
+   274→   274→            <SectionLabel>Gejala COVID-19</SectionLabel>
+   275→   275→            <div className="grid gap-2 sm:grid-cols-2">
+   276→   276→              <YesNoField label="Demam" checked={b("covid_demam")} onChange={(v) => set("covid_demam", v)} />
+   277→   277→              <YesNoField label="Batuk" checked={b("covid_batuk")} onChange={(v) => set("covid_batuk", v)} />
+   278→   278→              <YesNoField label="Kehilangan penciuman" checked={b("covid_hilangPenciuman")} onChange={(v) => set("covid_hilangPenciuman", v)} />
+   279→   279→              <YesNoField label="Sesak" checked={b("covid_sesak")} onChange={(v) => set("covid_sesak", v)} />
+   280→   280→            </div>
+   281→   281→          </div>
+   282→   282→          <div>
+   283→   283→            <SectionLabel>Gejala MERS-CoV</SectionLabel>
+   284→   284→            <div className="grid gap-2 sm:grid-cols-2">
+   285→   285→              <YesNoField label="Demam" checked={b("mers_demam")} onChange={(v) => set("mers_demam", v)} />
+   286→   286→              <YesNoField label="Batuk" checked={b("mers_batuk")} onChange={(v) => set("mers_batuk", v)} />
+   287→   287→              <YesNoField label="Sesak" checked={b("mers_sesak")} onChange={(v) => set("mers_sesak", v)} />
+   288→   288→              <YesNoField label="Riwayat kontak dengan kasus" checked={b("mers_kontak")} onChange={(v) => set("mers_kontak", v)} hint="Tandai jika ada kontak terkonfirmasi MERS" />
+   289→   289→            </div>
+   290→   290→          </div>
+   291→   291→          <div>
+   292→   292→            <SectionLabel>Gejala Gastroenteritis</SectionLabel>
+   293→   293→            <div className="grid gap-2 sm:grid-cols-2">
+   294→   294→              <YesNoField label="Diare" checked={b("gastro_diare")} onChange={(v) => set("gastro_diare", v)} />
+   295→   295→              <YesNoField label="Mual" checked={b("gastro_mual")} onChange={(v) => set("gastro_mual", v)} />
+   296→   296→              <YesNoField label="Muntah" checked={b("gastro_muntah")} onChange={(v) => set("gastro_muntah", v)} />
+   297→   297→              <YesNoField label="Nyeri perut" checked={b("gastro_nyeri")} onChange={(v) => set("gastro_nyeri", v)} />
+   298→   298→            </div>
+   299→   299→          </div>
+   300→   300→        </div>
+   301→   301→      );
+   302→   302→
+   303→   303→    case "CHRONIC":
+   304→   304→      return (
+   305→   305→        <div className="space-y-4">
+   306→   306→          <div>
+   307→   307→            <SectionLabel>Diabetes Mellitus</SectionLabel>
+   308→   308→            <div className="grid gap-2 sm:grid-cols-2">
+   309→   309→              <NumberField label="Gula darah sewaktu" value={n("dm_gulaDarah")} onChange={(v) => set("dm_gulaDarah", v)} unit="mg/dL" />
+   310→   310→              <div className="flex flex-col gap-2">
+   311→   311→                <YesNoField label="Tidak patuh minum obat" checked={b("dm_tidakPatuh")} onChange={(v) => set("dm_tidakPatuh", v)} />
+   312→   312→                <YesNoField label="Keluhan hipoglikemia" checked={b("dm_hipo")} onChange={(v) => set("dm_hipo", v)} />
+   313→   313→              </div>
+   314→   314→            </div>
+   315→   315→          </div>
+   316→   316→          <div>
+   317→   317→            <SectionLabel>Hipertensi</SectionLabel>
+   318→   318→            <div className="grid gap-2 sm:grid-cols-2">
+   319→   319→              <NumberField label="Tekanan darah sistolik" value={n("ht_sistolik")} onChange={(v) => set("ht_sistolik", v)} unit="mmHg" />
+   320→   320→              <NumberField label="Tekanan darah diastolik" value={n("ht_diastolik")} onChange={(v) => set("ht_diastolik", v)} unit="mmHg" />
+   321→   321→              <YesNoField label="Tidak patuh minum obat" checked={b("ht_tidakPatuh")} onChange={(v) => set("ht_tidakPatuh", v)} />
+   322→   322→            </div>
+   323→   323→          </div>
+   324→   324→          <div>
+   325→   325→            <SectionLabel>Penyakit Jantung</SectionLabel>
+   326→   326→            <div className="grid gap-2 sm:grid-cols-3">
+   327→   327→              <YesNoField label="Sesak" checked={b("jantung_sesak")} onChange={(v) => set("jantung_sesak", v)} />
+   328→   328→              <YesNoField label="Bengkak tungkai" checked={b("jantung_bengkak")} onChange={(v) => set("jantung_bengkak", v)} />
+   329→   329→              <YesNoField label="Nyeri dada" checked={b("jantung_nyeriDada")} onChange={(v) => set("jantung_nyeriDada", v)} />
+   330→   330→            </div>
+   331→   331→          </div>
+   332→   332→          <div>
+   333→   333→            <SectionLabel>PPOK / Asthma</SectionLabel>
+   334→   334→            <div className="grid gap-2 sm:grid-cols-3">
+   335→   335→              <YesNoField label="Sesak" checked={b("ppok_sesak")} onChange={(v) => set("ppok_sesak", v)} />
+   336→   336→              <NumberField label="Frekuensi sesak (minggu)" value={n("ppok_frekuensi")} onChange={(v) => set("ppok_frekuensi", v)} unit="×/mgg" />
+   337→   337→              <YesNoField label="Penggunaan inhaler" checked={b("ppok_inhaler")} onChange={(v) => set("ppok_inhaler", v)} />
+   338→   338→            </div>
+   339→   339→          </div>
+   340→   340→          <div>
+   341→   341→            <SectionLabel>Gagal Ginjal</SectionLabel>
+   342→   342→            <div className="grid gap-2 sm:grid-cols-2">
+   343→   343→              <YesNoField label="Jadwal kontrol teratur" checked={b("ginjal_kontrol")} onChange={(v) => set("ginjal_kontrol", v)} />
+   344→   344→              <YesNoField label="Keluhan edema" checked={b("ginjal_edema")} onChange={(v) => set("ginjal_edema", v)} />
+   345→   345→            </div>
+   346→   346→          </div>
+   347→   347→        </div>
+   348→   348→      );
+   349→   349→
+   350→   350→    case "FRAILTY": {
+   351→   351→      const items = [
+   352→   352→        { k: "fatigue", label: "Fatigue — Seberapa sering Anda merasa lelah sebagian besar waktu?" },
+   353→   353→        { k: "resistance", label: "Resistance — Kesulitan menaiki 10 anak tangga tanpa bantuan?" },
+   354→   354→        { k: "ambulation", label: "Ambulation — Kesulitan berjalan beberapa ratus meter sendirian?" },
+   355→   355→        { k: "illness", label: "Illness — Memiliki ≥5 penyakit kronis?" },
+   356→   356→        { k: "lossWeight", label: "Loss of Weight — Penurunan berat badan ≥5% dalam 12 bulan?" },
+   357→   357→      ];
+   358→   358→      return (
+   359→   359→        <div className="space-y-3">
+   360→   360→          <p className="rounded-lg bg-accent/50 px-3 py-2 text-xs text-muted-foreground">
+   361→   361→            FRAIL Scale — jawab setiap pertanyaan dengan Ya (1) / Tidak (0).
+   362→   362→          </p>
+   363→   363→          {items.map((it) => (
+   364→   364→            <YesNoField key={it.k} label={it.label} checked={b(it.k)} onChange={(v) => set(it.k, v)} />
+   365→   365→          ))}
+   366→   366→        </div>
+   367→   367→      );
+   368→   368→    }
+   369→   369→
+   370→   370→    case "FALL_RISK":
+   371→   371→      return (
+   372→   372→        <div className="space-y-3">
+   373→   373→          <p className="rounded-lg bg-accent/50 px-3 py-2 text-xs text-muted-foreground">
+   374→   374→            Skrining Risiko Jatuh — 3 pertanyaan singkat.
+   375→   375→          </p>
+   376→   376→          <YesNoField label="Pernah jatuh dalam 1 tahun terakhir?" checked={b("jatuhSetahun")} onChange={(v) => set("jatuhSetahun", v)} />
+   377→   377→          <YesNoField label="Gangguan keseimbangan saat berdiri/berjalan?" checked={b("gangguanKeseimbangan")} onChange={(v) => set("gangguanKeseimbangan", v)} />
+   378→   378→          <YesNoField label="Menggunakan alat bantu jalan (tongkat/walker)?" checked={b("alatBantu")} onChange={(v) => set("alatBantu", v)} />
+   379→   379→        </div>
+   380→   380→      );
+   381→   381→
+   382→   382→    case "NUTRITION": {
+   383→   383→      const opts2 = [{ value: 0, label: "Anoreksia berat" }, { value: 1, label: "Nafsu makan menurun" }, { value: 2, label: "Normal" }];
+   384→   384→      const opts3 = [{ value: 0, label: ">3kg" }, { value: 1, label: "Tidak tahu" }, { value: 2, label: "1-3kg" }, { value: 3, label: "Tidak turun" }];
+   385→   385→      const mob = [{ value: 0, label: "Bed/chair bound" }, { value: 1, label: "Mampu keluar" }, { value: 2, label: "Berjalan mandiri" }];
+   386→   386→      const stress = [{ value: 0, label: "Ya" }, { value: 2, label: "Tidak" }];
+   387→   387→      const neuro = [{ value: 0, label: "Demensia berat" }, { value: 1, label: "Demensia ringan" }, { value: 2, label: "Tidak ada" }];
+   388→   388→      const imt = [{ value: 0, label: "<19" }, { value: 1, label: "19-21" }, { value: 2, label: "21-23" }, { value: 3, label: "≥23" }];
+   389→   389→      return (
+   390→   390→        <div className="space-y-2">
+   391→   391→          <p className="rounded-lg bg-accent/50 px-3 py-2 text-xs text-muted-foreground">
+   392→   392→            MNA-SF (Mini Nutritional Assessment Short Form) — skor 0–14.
+   393→   393→          </p>
+   394→   394→          <ScoreRadioGroup label="Nafsu makan" value={data.nafsuMakan as number | null} options={opts2} onChange={(v) => set("nafsuMakan", v)} />
+   395→   395→          <ScoreRadioGroup label="Penurunan berat badan (3 bln)" value={data.penurunanBB as number | null} options={opts3} onChange={(v) => set("penurunanBB", v)} />
+   396→   396→          <ScoreRadioGroup label="Mobilitas" value={data.mobilitas as number | null} options={mob} onChange={(v) => set("mobilitas", v)} />
+   397→   397→          <ScoreRadioGroup label="Stres akut / stres psikologis (3 bln)" value={data.stresAkut as number | null} options={stress} onChange={(v) => set("stresAkut", v)} />
+   398→   398→          <ScoreRadioGroup label="Masalah neuropsikologis" value={data.neuropsikologis as number | null} options={neuro} onChange={(v) => set("neuropsikologis", v)} />
+   399→   399→          <ScoreRadioGroup label="IMT (kg/m²)" value={data.imt as number | null} options={imt} onChange={(v) => set("imt", v)} />
+   400→   400→        </div>
+   401→   401→      );
+   402→   402→    }
+   403→   403→
+   404→   404→    case "MENTAL": {
+   405→   405→      const phqItems = [
+   406→   406→        ["phq9_1", "Minat/kesenangan berkurang"],
+   407→   407→        ["phq9_2", "Merasa murung/sedih/depresi"],
+   408→   408→        ["phq9_3", "Sulit tidur/ngantuk"],
+   409→   409→        ["phq9_4", "Lelah/tidak bertenaga"],
+   410→   410→        ["phq9_5", "Nafsu makan berubah"],
+   411→   411→        ["phq9_6", "Merasa gagal/menyesal"],
+   412→   412→        ["phq9_7", "Sulit konsentrasi"],
+   413→   413→        ["phq9_8", "Gerakan lambat/gelisah"],
+   414→   414→      ];
+   415→   415→      const gadItems = [
+   416→   416→        ["gad7_1", "Gugup/cemas"],
+   417→   417→        ["gad7_2", "Khawatir berlebihan"],
+   418→   418→        ["gad7_3", "Sulit mengendalikan kekhawatiran"],
+   419→   419→        ["gad7_4", "Sulit relaksasi"],
+   420→   420→        ["gad7_5", "Gelisah/mudah jengkel"],
+   421→   421→        ["gad7_6", "Takut sesuatu buruk terjadi"],
+   422→   422→      ];
+   423→   423→      const freq = [
+   424→   424→        { value: 0, label: "0 Tdk" }, { value: 1, label: "1 Hr" },
+   425→   425→        { value: 2, label: "2 Hr" }, { value: 3, label: "3+ Hr" },
+   426→   426→      ];
+   427→   427→      const freq9 = [...freq, { value: 0, label: "0 Tdk" }]; // item 9
+   428→   428→      return (
+   429→   429→        <div className="space-y-4">
+   430→   430→          <div>
+   431→   431→            <SectionLabel>PHQ-9 (Depresi) — 2 minggu terakhir</SectionLabel>
+   432→   432→            <div className="space-y-2">
+   433→   433→              {phqItems.map(([k, label]) => (
+   434→   434→                <ScoreRadioGroup key={k} label={label} value={data[k] as number | null} options={freq} onChange={(v) => set(k, v)} />
+   435→   435→              ))}
+   436→   436→              <ScoreRadioGroup label="Pikiran menyakiti diri / bunuh diri" value={data.phq9_9 as number | null} options={freq9} onChange={(v) => set("phq9_9", v)} />
+   437→   437→            </div>
+   438→   438→          </div>
+   439→   439→          <div>
+   440→   440→            <SectionLabel>GAD-7 (Kecemasan) — 2 minggu terakhir</SectionLabel>
+   441→   441→            <div className="space-y-2">
+   442→   442→              {gadItems.map(([k, label]) => (
+   443→   443→                <ScoreRadioGroup key={k} label={label} value={data[k] as number | null} options={freq} onChange={(v) => set(k, v)} />
+   444→   444→              ))}
+   445→   445→            </div>
+   446→   446→          </div>
+   447→   447→        </div>
+   448→   448→      );
+   449→   449→    }
+   450→   450→
+   451→   451→    case "SLEEP": {
+   452→   452→      const opts = [
+   453→   453→        { value: 0, label: "Tdk" }, { value: 1, label: "Ringan" },
+   454→   454→        { value: 2, label: "Sedang" }, { value: 3, label: "Berat" }, { value: 4, label: "Sgt Berat" },
+   455→   455→      ];
+   456→   456→      return (
+   457→   457→        <div className="space-y-2">
+   458→   458→          <p className="rounded-lg bg-accent/50 px-3 py-2 text-xs text-muted-foreground">
+   459→   459→            Insomnia Severity Index (ISI) singkat — 2 minggu terakhir, skor 0–12.
+   460→   460→          </p>
+   461→   461→          <ScoreRadioGroup label="Sulit tertidur" value={data.sulitTidur as number | null} options={opts} onChange={(v) => set("sulitTidur", v)} />
+   462→   462→          <ScoreRadioGroup label="Sering terbangun tengah malam" value={data.seringTerbangun as number | null} options={opts} onChange={(v) => set("seringTerbangun", v)} />
+   463→   463→          <ScoreRadioGroup label="Tidur tidak nyenyak / tidak segar" value={data.tidakNyenyak as number | null} options={opts} onChange={(v) => set("tidakNyenyak", v)} />
+   464→   464→        </div>
+   465→   465→      );
+   466→   466→    }
+   467→   467→
+   468→   468→    case "ACTIVITY":
+   469→   469→      return (
+   470→   470→        <div className="space-y-3">
+   471→   471→          <p className="rounded-lg bg-accent/50 px-3 py-2 text-xs text-muted-foreground">
+   472→   472→            Skrining Aktivitas Fisik & ADL (Activities of Daily Living).
+   473→   473→          </p>
+   474→   474→          <YesNoField label="Dapat berjalan mandiri?" checked={b("jalanMandiri")} onChange={(v) => set("jalanMandiri", v)} />
+   475→   475→          <YesNoField label="Aktivitas sehari-hari (makan, mandi, berpakaian) normal?" checked={b("aktivitasNormal")} onChange={(v) => set("aktivitasNormal", v)} />
+   476→   476→          <YesNoField label="Perlu bantuan keluarga untuk aktivitas?" checked={b("butuhBantuan")} onChange={(v) => set("butuhBantuan", v)} />
+   477→   477→        </div>
+   478→   478→      );
+   479→   479→
+   480→   480→    case "SPIRITUAL":
+   481→   481→      return (
+   482→   482→        <div className="space-y-3">
+   483→   483→          <p className="rounded-lg bg-accent/50 px-3 py-2 text-xs text-muted-foreground">
+   484→   484→            Skrining Spiritual Pasca Haji.
+   485→   485→          </p>
+   486→   486→          <YesNoField label="Apakah ibadah rutin (shalat, tilawah) tetap dilakukan?" checked={b("ibadahRutin")} onChange={(v) => set("ibadahRutin", v)} />
+   487→   487→          <YesNoField label="Apakah merasakan ketenangan setelah haji?" checked={b("ketenangan")} onChange={(v) => set("ketenangan", v)} />
+   488→   488→          <YesNoField label="Apakah memiliki kesulitan menjalankan ibadah akibat kondisi kesehatan?" checked={b("hambatanIbadah")} onChange={(v) => set("hambatanIbadah", v)} />
+   489→   489→        </div>
+   490→   490→      );
+   491→   491→
+   492→   492→    case "FAMILY_APGAR": {
+   493→   493→      const opts = [
+   494→   494→        { value: 0, label: " Hampir tdk pernah" },
+   495→   495→        { value: 1, label: " Kadang" },
+   496→   496→        { value: 2, label: " Hampir selalu" },
+   497→   497→      ];
+   498→   498→      const items = [
+   499→   499→        ["adaptation", "Adaptation — Puas atas bantuan keluarga saat menghadapi masalah?"],
+   500→   500→        ["partnership", "Partnership — Berbagi masalah & diskusi dengan keluarga?"],
+   501→   501→        ["growth", "Growth — Keputusan keluarga dibagi bersama?"],
+   502→   502→        ["affection", "Affection — Ekspresi kasih sayang & waktu bersama keluarga?"],
+   503→   503→        ["resolve", "Resolve — Waktu & ruang tinggal yang diinginkan tersedia?"],
+   504→   504→      ];
+   505→   505→      return (
+   506→   506→        <div className="space-y-2">
+   507→   507→          <p className="rounded-lg bg-accent/50 px-3 py-2 text-xs text-muted-foreground">
+   508→   508→            APGAR Family — skor 0–10. Nilai kepuasan dukungan keluarga pasca kepulangan.
+   509→   509→          </p>
+   510→   510→          {items.map(([k, label]) => (
+   511→   511→            <ScoreRadioGroup key={k} label={label} value={data[k] as number | null} options={opts} onChange={(v) => set(k, v)} />
+   512→   512→          ))}
+   513→   513→        </div>
+   514→   514→      );
+   515→   515→    }
+   516→   516→
+   517→   517→    case "FOLLOWUP":
+   518→   518→      return (
+   519→   519→        <div className="space-y-3">
+   520→   520→          <p className="rounded-lg bg-accent/50 px-3 py-2 text-xs text-muted-foreground">
+   521→   521→            Checklist kebutuhan tindak lanjut pelayanan kesehatan.
+   522→   522→          </p>
+   523→   523→          <div className="grid gap-2 sm:grid-cols-2">
+   524→   524→            <YesNoField label="Perlu kontrol dokter" checked={b("kontrolDokter")} onChange={(v) => set("kontrolDokter", v)} />
+   525→   525→            <YesNoField label="Perlu home visit" checked={b("homeVisit")} onChange={(v) => set("homeVisit", v)} />
+   526→   526→            <YesNoField label="Perlu konsultasi gizi" checked={b("konsultasiGizi")} onChange={(v) => set("konsultasiGizi", v)} />
+   527→   527→            <YesNoField label="Perlu rehabilitasi" checked={b("rehabilitasi")} onChange={(v) => set("rehabilitasi", v)} />
+   528→   528→            <YesNoField label="Perlu konseling psikologis" checked={b("konselingPsikologis")} onChange={(v) => set("konselingPsikologis", v)} />
+   529→   529→          </div>
+   530→   530→        </div>
+   531→   531→      );
+   532→   532→
+   533→   533→    default:
+   534→   534→      return null;
+   535→   535→  }
+   536→   536→}
+   537→   537→

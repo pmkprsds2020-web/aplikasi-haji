@@ -160,8 +160,35 @@ export function JamaahDashboard() {
         return;
       }
       const j = jRow as JamaahRow;
-      console.log("[JamaahDashboard] jamaah found:", j.nama, "| email:", (j as Record<string, unknown>).email);
+      console.log("[JamaahDashboard] jamaah found:", j.nama, "| email:", (j as Record<string, unknown>).email, "| doctor_id:", j.doctor_id);
       if (!mounted) return;
+
+      // ===== AUTO-ASSIGN doctor_id if null =====
+      if (!j.doctor_id) {
+        console.log("[JamaahDashboard] doctor_id is null — auto-assigning...");
+        const { data: dokterProfile, error: dokterErr } = await supabase
+          .from("profiles")
+          .select("id, full_name, email")
+          .eq("role", "dokter")
+          .limit(1)
+          .maybeSingle();
+        console.log("[JamaahDashboard] dokter search:", dokterProfile, "error:", dokterErr);
+        if (dokterProfile && !dokterErr) {
+          const newDoctorId = (dokterProfile as Record<string, unknown>).id as string;
+          console.log("[JamaahDashboard] Auto-assigning doctor_id =", newDoctorId);
+          const { error: updateErr } = await supabase
+            .from("jamaah")
+            .update({ doctor_id: newDoctorId })
+            .eq("id", j.id);
+          if (updateErr) {
+            console.warn("[JamaahDashboard] Failed to auto-assign doctor_id:", updateErr.message);
+          } else {
+            console.log("[JamaahDashboard] doctor_id auto-assigned!");
+            (j as Record<string, unknown>).doctor_id = newDoctorId;
+          }
+        }
+      }
+
       setJamaah(j);
 
       // 2. Parallel fetches for doctor, vitals, screenings, chat messages
@@ -172,7 +199,10 @@ export function JamaahDashboard() {
           supabase.from("profiles").select("full_name,email").eq("id", j.doctor_id).maybeSingle()
             .then(({ data, error }) => {
               if (error) { console.error(error); toast.error(error.message); return; }
-              if (mounted && data) setDoctor(data as ProfileRow);
+              if (mounted && data) {
+                console.log("[JamaahDashboard] doctor profile loaded:", data);
+                setDoctor(data as ProfileRow);
+              }
             })
         );
       }

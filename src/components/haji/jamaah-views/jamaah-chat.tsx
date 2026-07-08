@@ -60,6 +60,7 @@ interface JamaahRecord {
   id: string;
   nama: string;
   doctor_id: string | null;
+  dokter_keluarga: string | null;
 }
 
 const COMMON_EMOJIS = [
@@ -103,9 +104,11 @@ export function JamaahChat() {
         return;
       }
       console.log("[JamaahChat] bootstrap: fetching jamaah for user_id =", user.id);
+      console.log("[JamaahChat] auth.uid:", user.id, "| email:", user.email);
+
       const { data: jData, error: jErr } = await supabase
         .from("jamaah")
-        .select("id, nama, doctor_id")
+        .select("id, nama, doctor_id, dokter_keluarga, email")
         .eq("user_id", user.id)
         .maybeSingle();
 
@@ -122,21 +125,65 @@ export function JamaahChat() {
         return;
       }
       if (!jData) {
-        console.error("[JamaahChat] No jamaah record found for user_id");
+        console.error("[JamaahChat] No jamaah record found for user_id =", user.id);
         setLoadError("Data jamaah tidak ditemukan. Hubungi Puskesmas untuk pendaftaran.");
         toast.error("Data jamaah tidak ditemukan");
         setLoading(false);
         return;
       }
-      const jamaahRec: JamaahRecord = {
+
+      let jamaahRec: JamaahRecord = {
         id: jData.id,
         nama: jData.nama,
         doctor_id: jData.doctor_id,
+        dokter_keluarga: jData.dokter_keluarga,
       };
+
+      console.log("[JamaahChat] jamaah_id:", jamaahRec.id, "| doctor_id:", jamaahRec.doctor_id, "| dokter_keluarga:", jamaahRec.dokter_keluarga);
+
+      // ===== AUTO-ASSIGN doctor_id if null =====
+      // If doctor_id is null, try to find a dokter to assign.
+      // Strategy: Find any dokter profile and assign them as the responsible doctor.
+      if (!jamaahRec.doctor_id) {
+        console.log("[JamaahChat] doctor_id is null — auto-assigning...");
+
+        // Try to find a dokter profile
+        const { data: dokterProfile, error: dokterErr } = await supabase
+          .from("profiles")
+          .select("id, full_name, email")
+          .eq("role", "dokter")
+          .limit(1)
+          .maybeSingle();
+
+        console.log("[JamaahChat] dokter search result:", dokterProfile, "error:", dokterErr);
+
+        if (dokterProfile && !dokterErr) {
+          const newDoctorId = (dokterProfile as Record<string, unknown>).id as string;
+          console.log("[JamaahChat] Auto-assigning doctor_id =", newDoctorId);
+
+          // Update jamaah with the found doctor_id
+          const { error: updateErr } = await supabase
+            .from("jamaah")
+            .update({ doctor_id: newDoctorId })
+            .eq("id", jamaahRec.id);
+
+          if (updateErr) {
+            console.warn("[JamaahChat] Failed to auto-assign doctor_id:", updateErr.message);
+          } else {
+            console.log("[JamaahChat] doctor_id auto-assigned successfully!");
+            jamaahRec = { ...jamaahRec, doctor_id: newDoctorId };
+          }
+        } else {
+          console.warn("[JamaahChat] No dokter found in profiles table");
+        }
+      }
+
+      if (!active) return;
       setJamaah(jamaahRec);
 
+      // If still no doctor_id after auto-assign, show "no doctor" state
       if (!jamaahRec.doctor_id) {
-        console.log("[JamaahChat] doctor_id is null — showing 'no doctor' state");
+        console.log("[JamaahChat] doctor_id still null after auto-assign — showing 'no doctor' state");
         setNoDoctor(true);
         setLoading(false);
         return;
@@ -146,7 +193,7 @@ export function JamaahChat() {
       console.log("[JamaahChat] fetching doctor profile for id =", jamaahRec.doctor_id);
       const { data: dData, error: dErr } = await supabase
         .from("profiles")
-        .select("id, full_name, email, phone")
+        .select("id, full_name, email")
         .eq("id", jamaahRec.doctor_id)
         .maybeSingle();
 
@@ -164,7 +211,7 @@ export function JamaahChat() {
           id: dData.id,
           full_name: dData.full_name,
           email: dData.email,
-          phone: dData.phone,
+          phone: null,
         });
       }
     }

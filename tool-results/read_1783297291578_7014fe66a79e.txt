@@ -1,0 +1,772 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import * as React from "react";
+     4→     4→import {
+     5→     5→  Phone, Video, Info, Send, Smile, Paperclip, ArrowLeft,
+     6→     6→  Check, CheckCheck, Activity, ClipboardList, Pill, GraduationCap,
+     7→     7→  CalendarClock, FileText, AlertTriangle, MapPin, ImageIcon,
+     8→     8→  File as FileIcon, Mic, Sparkles, Loader2, Smartphone, X,
+     9→     9→  type LucideIcon,
+    10→    10→} from "lucide-react";
+    11→    11→import { Button } from "@/components/ui/button";
+    12→    12→import { Badge } from "@/components/ui/badge";
+    13→    13→import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+    14→    14→import {
+    15→    15→  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+    16→    16→} from "@/components/ui/dialog";
+    17→    17→import { toast } from "sonner";
+    18→    18→import {
+    19→    19→  type ChatMessageData, type TelemedicineRequestData, type ChatSenderType,
+    20→    20→  type ChatMessageType, QUICK_ACTIONS, type QuickAction,
+    21→    21→} from "@/lib/telemedicine-types";
+    22→    22→import { DEFAULT_TEMPLATES } from "@/lib/telemedicine-types";
+    23→    23→import { useTelemedicineSocket } from "./use-telemedicine-socket";
+    24→    24→import { useSupabaseChat } from "@/hooks/use-supabase-chat";
+    25→    25→import { formatTanggalWaktu, initials, RISK_STYLE } from "@/lib/format";
+    26→    26→import type { JamaahData } from "@/lib/types";
+    27→    27→import { cn } from "@/lib/utils";
+    28→    28→import { RiskBadge } from "../shared";
+    29→    29→import { QuickActionMenu } from "./quick-action-menu";
+    30→    30→import { TtvFormDialog } from "./ttv-form-dialog";
+    31→    31→import { SkriningFormDialog } from "./skrining-form-dialog";
+    32→    32→import { PatientFormFillDialog } from "./patient-form-fill-dialog";
+    33→    33→import { SmartMonitoringDialog } from "./smart-monitoring-dialog";
+    34→    34→import { EdukasiFormDialog, ObatFormDialog, FileSendDialog } from "./simple-action-dialogs";
+    35→    35→import { AiSummaryPanel } from "./ai-summary-panel";
+    36→    36→
+    37→    37→interface Props {
+    38→    38→  jamaahId: string;
+    39→    39→  jamaah: JamaahData | null;
+    40→    40→  onBack?: () => void;
+    41→    41→}
+    42→    42→
+    43→    43→interface RoomData {
+    44→    44→  room: { id: string; jamaahId: string };
+    45→    45→  messages: ChatMessageData[];
+    46→    46→  requests: TelemedicineRequestData[];
+    47→    47→  jamaah: JamaahData;
+    48→    48→}
+    49→    49→const getRoomId = (r: RoomData | null) => r?.room?.id ?? null;
+    50→    50→
+    51→    51→const COMMON_EMOJIS = ["👍", "❤️", "🙏", "😊", "😢", "👍", "👌", "✅", "⏰", "💊", "🩺", "📞", "🔴", "🟡", "🟢", "💡"];
+    52→    52→
+    53→    53→const TYPE_ICON: Partial<Record<ChatMessageType, LucideIcon>> = {
+    54→    54→  TTV_REQUEST: Activity,
+    55→    55→  SKRINING_REQUEST: ClipboardList,
+    56→    56→  EDUKASI: GraduationCap,
+    57→    57→  OBAT: Pill,
+    58→    58→  MONITORING: CalendarClock,
+    59→    59→  TTV_RESULT: Activity,
+    60→    60→  SKRINING_RESULT: ClipboardList,
+    61→    61→  ALERT: AlertTriangle,
+    62→    62→  VOICE: Mic,
+    63→    63→  IMAGE: ImageIcon,
+    64→    64→  FILE: FileIcon,
+    65→    65→  PDF: FileText,
+    66→    66→  LOCATION: MapPin,
+    67→    67→};
+    68→    68→
+    69→    69→export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Props) {
+    70→    70→  const { isConnected, onlineMap, typingMap, joinRoom, leaveRoom, setTyping, announcePresence, onMessage, onAlert, onRequest, onResponse } = useTelemedicineSocket();
+    71→    71→
+    72→    72→  // ===== SUPABASE-DIRECT CHAT (single source of truth) =====
+    73→    73→  // Messages are fetched via supabase.from('chat_message').select() and
+    74→    74→  // sent via supabase.from('chat_message').insert(). Supabase Realtime
+    75→    75→  // auto-syncs new messages. Local state is a mirror only — never the
+    76→    76→  // primary store.
+    77→    77→  const {
+    78→    78→    roomId,
+    79→    79→    messages: supabaseMessages,
+    80→    80→    loading,
+    81→    81→    sending,
+    82→    82→    sendMessage: supabaseSend,
+    83→    83→    refresh: refreshMessages,
+    84→    84→  } = useSupabaseChat(jamaahId);
+    85→    85→
+    86→    86→  // Map Supabase rows (snake_case) to the ChatMessageData shape the UI expects
+    87→    87→  const messages: ChatMessageData[] = React.useMemo(
+    88→    88→    () =>
+    89→    89→      supabaseMessages.map((m) => ({
+    90→    90→        id: m.id,
+    91→    91→        roomId: m.room_id,
+    92→    92→        senderType: m.sender_type as ChatSenderType,
+    93→    93→        senderName: m.sender_name,
+    94→    94→        type: m.type as ChatMessageType,
+    95→    95→        content: m.content,
+    96→    96→        attachmentUrl: m.attachment_url,
+    97→    97→        attachmentName: m.attachment_name,
+    98→    98→        requestId: m.request_id,
+    99→    99→        readByDoctor: m.read_by_doctor,
+   100→   100→        readByJamaah: m.read_by_jamaah,
+   101→   101→        createdAt: m.created_at,
+   102→   102→      })),
+   103→   103→    [supabaseMessages]
+   104→   104→  );
+   105→   105→
+   106→   106→  const [requests, setRequests] = React.useState<TelemedicineRequestData[]>([]);
+   107→   107→  const [jamaah, setJamaah] = React.useState<JamaahData | null>(jamaahProp);
+   108→   108→  const [input, setInput] = React.useState("");
+   109→   109→  const [infoOpen, setInfoOpen] = React.useState(false);
+   110→   110→
+   111→   111→  // Dialogs
+   112→   112→  const [ttvOpen, setTtvOpen] = React.useState(false);
+   113→   113→  const [skriningOpen, setSkriningOpen] = React.useState(false);
+   114→   114→  const [edukasiOpen, setEdukasiOpen] = React.useState(false);
+   115→   115→  const [obatOpen, setObatOpen] = React.useState(false);
+   116→   116→  const [fileOpen, setFileOpen] = React.useState(false);
+   117→   117→  const [monitoringOpen, setMonitoringOpen] = React.useState(false);
+   118→   118→  const [aiOpen, setAiOpen] = React.useState(false);
+   119→   119→  const [patientDialogRequest, setPatientDialogRequest] = React.useState<TelemedicineRequestData | null>(null);
+   120→   120→  const [patientDialogOpen, setPatientDialogOpen] = React.useState(false);
+   121→   121→
+   122→   122→  const [emojiOpen, setEmojiOpen] = React.useState(false);
+   123→   123→  const [attachOpen, setAttachOpen] = React.useState(false);
+   124→   124→  const [templateOpen, setTemplateOpen] = React.useState(false);
+   125→   125→
+   126→   126→  const scrollRef = React.useRef<HTMLDivElement>(null);
+   127→   127→  const typingDebounce = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+   128→   128→  const isTypingNow = React.useRef(false);
+   129→   129→
+   130→   130→  // ===== Load room (still fetch requests from API; messages come from Supabase hook) =====
+   131→   131→  const load = React.useCallback(async () => {
+   132→   132→    try {
+   133→   133→      const res = await fetch(`/api/telemedicine/rooms/${jamaahId}`, { cache: "no-store" });
+   134→   134→      if (!res.ok) return;
+   135→   135→      const data = (await res.json()) as RoomData;
+   136→   136→      setRequests(data.requests ?? []);
+   137→   137→      setJamaah(data.jamaah ?? jamaahProp);
+   138→   138→    } catch {
+   139→   139→      // Non-critical — messages are handled by Supabase hook
+   140→   140→    }
+   141→   141→  }, [jamaahId, jamaahProp]);
+   142→   142→
+   143→   143→  React.useEffect(() => {
+   144→   144→    load();
+   145→   145→    joinRoom(jamaahId);
+   146→   146→    announcePresence(jamaahId, "DOCTOR");
+   147→   147→
+   148→   148→    return () => {
+   149→   149→      leaveRoom(jamaahId);
+   150→   150→      setTyping(jamaahId, false, "DOCTOR");
+   151→   151→    };
+   152→   152→  }, [jamaahId]);
+   153→   153→
+   154→   154→  // ===== Realtime handlers (socket.io for presence/typing/alerts) =====
+   155→   155→  // NOTE: Message realtime is handled by Supabase Realtime in useSupabaseChat.
+   156→   156→  // The socket.io onMessage handler is kept for backward compat but messages
+   157→   157→  // are already synced via Supabase — dedup by id prevents duplicates.
+   158→   158→  React.useEffect(() => {
+   159→   159→    const off = onMessage((p) => {
+   160→   160→      const m = p.message;
+   161→   161→      if (!m || m.roomId !== roomId) return;
+   162→   162→      // Supabase Realtime already added this message; refresh to be safe.
+   163→   163→      refreshMessages();
+   164→   164→    });
+   165→   165→    return off;
+   166→   166→  }, [onMessage, roomId, refreshMessages]);
+   167→   167→
+   168→   168→  React.useEffect(() => {
+   169→   169→    const off = onAlert((p) => {
+   170→   170→      if (p.jamaahId !== jamaahId) return;
+   171→   171→      const a = p.alert;
+   172→   172→      if (a.level === "RED") toast.error(`🚨 ${a.detail}`);
+   173→   173→      else if (a.level === "ORANGE") toast.warning(`⚠️ ${a.detail}`);
+   174→   174→      else toast.info(`ℹ️ ${a.detail}`);
+   175→   175→    });
+   176→   176→    return off;
+   177→   177→  }, [onAlert, jamaahId]);
+   178→   178→
+   179→   179→  React.useEffect(() => {
+   180→   180→    const off = onRequest((p) => {
+   181→   181→      if (p.jamaahId !== jamaahId || !p.request) return;
+   182→   182→      const req = p.request as TelemedicineRequestData;
+   183→   183→      setRequests((prev) => prev.some((r) => r.id === req.id) ? prev : [req, ...prev]);
+   184→   184→    });
+   185→   185→    return off;
+   186→   186→  }, [onRequest, jamaahId]);
+   187→   187→
+   188→   188→  React.useEffect(() => {
+   189→   189→    const off = onResponse((p) => {
+   190→   190→      if (p.jamaahId !== jamaahId || !p.request) return;
+   191→   191→      const updated = p.request as TelemedicineRequestData;
+   192→   192→      setRequests((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+   193→   193→      // Also reload messages to capture TTV_RESULT/SKRINING_RESULT
+   194→   194→      load();
+   195→   195→    });
+   196→   196→    return off;
+   197→   197→  }, [onResponse, jamaahId, load]);
+   198→   198→
+   199→   199→  // ===== Auto-scroll to bottom on new message =====
+   200→   200→  React.useEffect(() => {
+   201→   201→    if (scrollRef.current) {
+   202→   202→      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+   203→   203→    }
+   204→   204→  }, [messages.length]);
+   205→   205→
+   206→   206→  // ===== Typing =====
+   207→   207→  const handleInputChange = (v: string) => {
+   208→   208→    setInput(v);
+   209→   209→    if (!isConnected) return;
+   210→   210→    if (!isTypingNow.current) {
+   211→   211→      isTypingNow.current = true;
+   212→   212→      setTyping(jamaahId, true, "DOCTOR");
+   213→   213→    }
+   214→   214→    if (typingDebounce.current) clearTimeout(typingDebounce.current);
+   215→   215→    typingDebounce.current = setTimeout(() => {
+   216→   216→      isTypingNow.current = false;
+   217→   217→      setTyping(jamaahId, false, "DOCTOR");
+   218→   218→    }, 2000);
+   219→   219→  };
+   220→   220→
+   221→   221→  const stopTyping = () => {
+   222→   222→    if (typingDebounce.current) clearTimeout(typingDebounce.current);
+   223→   223→    if (isTypingNow.current) {
+   224→   224→      isTypingNow.current = false;
+   225→   225→      setTyping(jamaahId, false, "DOCTOR");
+   226→   226→    }
+   227→   227→  };
+   228→   228→
+   229→   229→  // ===== Send text via Supabase INSERT =====
+   230→   230→  async function sendText(content?: string) {
+   231→   231→    const text = (content ?? input).trim();
+   232→   232→    if (!text) return;
+   233→   233→    stopTyping();
+   234→   234→    console.log("[sendText] calling supabaseSend with:", { senderType: "DOCTOR", type: "TEXT", content: text });
+   235→   235→    const inserted = await supabaseSend({
+   236→   236→      senderType: "DOCTOR",
+   237→   237→      type: "TEXT",
+   238→   238→      content: text,
+   239→   239→    });
+   240→   240→    console.log("[sendText] supabaseSend returned:", inserted);
+   241→   241→    if (inserted) {
+   242→   242→      setInput("");
+   243→   243→      toast.success("Pesan terkirim");
+   244→   244→    } else {
+   245→   245→      // INSERT returned null — could be error (already alerted) or success-with-null
+   246→   246→      // Still clear input if no error alert was shown
+   247→   247→      setInput("");
+   248→   248→    }
+   249→   249→  }
+   250→   250→
+   251→   251→  // ===== Send attachment placeholder via Supabase INSERT =====
+   252→   252→  async function sendAttachment(type: ChatMessageType, content: string) {
+   253→   253→    await supabaseSend({
+   254→   254→      senderType: "DOCTOR",
+   255→   255→      type,
+   256→   256→      content,
+   257→   257→      attachmentName: `placeholder-${type.toLowerCase()}.bin`,
+   258→   258→    });
+   259→   259→  }
+   260→   260→
+   261→   261→  // ===== Send template via Supabase INSERT =====
+   262→   262→  async function sendTemplate(t: { title: string; content: string }) {
+   263→   263→    const inserted = await supabaseSend({
+   264→   264→      senderType: "DOCTOR",
+   265→   265→      type: "TEMPLATE",
+   266→   266→      content: t.content,
+   267→   267→    });
+   268→   268→    if (inserted) {
+   269→   269→      setTemplateOpen(false);
+   270→   270→    }
+   271→   271→  }
+   272→   272→
+   273→   273→  // ===== Quick actions =====
+   274→   274→  const handleQuickAction = (a: QuickAction) => {
+   275→   275→    switch (a.key) {
+   276→   276→      case "ttv": setTtvOpen(true); break;
+   277→   277→      case "skrining": setSkriningOpen(true); break;
+   278→   278→      case "edukasi": setEdukasiOpen(true); break;
+   279→   279→      case "obat": setObatOpen(true); break;
+   280→   280→      case "monitoring": setMonitoringOpen(true); break;
+   281→   281→      case "file": setFileOpen(true); break;
+   282→   282→      case "ai": setAiOpen(true); break;
+   283→   283→    }
+   284→   284→  };
+   285→   285→
+   286→   286→  const openPatientFill = (req: TelemedicineRequestData) => {
+   287→   287→    setPatientDialogRequest(req);
+   288→   288→    setPatientDialogOpen(true);
+   289→   289→  };
+   290→   290→
+   291→   291→  const afterRequestSent = () => {
+   292→   292→    // Refetch to capture new request message + request
+   293→   293→    load();
+   294→   294→  };
+   295→   295→
+   296→   296→  // ===== Derived =====
+   297→   297→  const online = onlineMap[jamaahId];
+   298→   298→  const isOnline = online?.jamaah ?? false;
+   299→   299→  const typing = typingMap[jamaahId];
+   300→   300→  const isJamaahTyping = typing?.isTyping && typing.role !== "DOCTOR";
+   301→   301→
+   302→   302→  const j = jamaah ?? jamaahProp;
+   303→   303→  const riskStyle = j ? RISK_STYLE[j.riskLevel] : null;
+   304→   304→
+   305→   305→  // Group messages by date for date separators (simplified)
+   306→   306→  return (
+   307→   307→    <div className="flex h-full flex-col bg-background">
+   308→   308→      {/* ===== Header ===== */}
+   309→   309→      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border bg-card/95 px-4 py-2.5 backdrop-blur">
+   310→   310→        {onBack && (
+   311→   311→          <Button variant="ghost" size="icon" className="h-8 w-8 lg:hidden" onClick={onBack}>
+   312→   312→            <ArrowLeft className="h-4 w-4" />
+   313→   313→          </Button>
+   314→   314→        )}
+   315→   315→        <div className="relative">
+   316→   316→          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
+   317→   317→            {j ? initials(j.nama) : "?"}
+   318→   318→          </div>
+   319→   319→          {isOnline && (
+   320→   320→            <span className="absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-card bg-emerald-500" />
+   321→   321→          )}
+   322→   322→        </div>
+   323→   323→        <div className="min-w-0 flex-1">
+   324→   324→          <div className="flex items-center gap-2">
+   325→   325→            <p className="truncate text-sm font-semibold text-foreground">{j?.nama ?? "Memuat…"}</p>
+   326→   326→            {j && <RiskBadge level={j.riskLevel} className="hidden sm:inline-flex" />}
+   327→   327→          </div>
+   328→   328→          <p className="text-xs text-muted-foreground">
+   329→   329→            {isJamaahTyping ? (
+   330→   330→              <span className="text-primary">⌨️ sedang mengetik…</span>
+   331→   331→            ) : isOnline ? (
+   332→   332→              <span className="text-emerald-600 dark:text-emerald-400">● Online</span>
+   333→   333→            ) : (
+   334→   334→              <span>Terakhir dilihat baru saja</span>
+   335→   335→            )}
+   336→   336→            {j ? ` · ${j.usia}th · ${j.kloter}` : ""}
+   337→   337→          </p>
+   338→   338→        </div>
+   339→   339→        <div className="flex items-center gap-1">
+   340→   340→          <Button variant="ghost" size="icon" className="h-8 w-8" title="Telepon" onClick={() => toast.info("Fitur panggilan suara akan segera hadir")}>
+   341→   341→            <Phone className="h-4 w-4" />
+   342→   342→          </Button>
+   343→   343→          <Button variant="ghost" size="icon" className="h-8 w-8" title="Video Call (segera)" disabled onClick={() => toast.info("Video call akan segera hadir")}>
+   344→   344→            <Video className="h-4 w-4" />
+   345→   345→          </Button>
+   346→   346→          <Button variant="ghost" size="icon" className="h-8 w-8" title="Info Pasien" onClick={() => setInfoOpen(true)}>
+   347→   347→            <Info className="h-4 w-4" />
+   348→   348→          </Button>
+   349→   349→        </div>
+   350→   350→      </header>
+   351→   351→
+   352→   352→      {/* ===== Messages ===== */}
+   353→   353→      <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin bg-muted/30 px-3 py-4 sm:px-6">
+   354→   354→        {loading ? (
+   355→   355→          <div className="flex h-full items-center justify-center">
+   356→   356→            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+   357→   357→          </div>
+   358→   358→        ) : messages.length === 0 ? (
+   359→   359→          <div className="flex h-full flex-col items-center justify-center gap-2 py-10 text-center">
+   360→   360→            <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+   361→   361→              <Phone className="h-6 w-6" />
+   362→   362→            </span>
+   363→   363→            <p className="text-sm font-medium">Belum ada pesan</p>
+   364→   364→            <p className="max-w-xs text-xs text-muted-foreground">Mulai percakapan telemedicine atau kirim form TTV/Skrining.</p>
+   365→   365→          </div>
+   366→   366→        ) : (
+   367→   367→          <div className="mx-auto flex max-w-3xl flex-col gap-2">
+   368→   368→            {messages.map((m) => (
+   369→   369→              <MessageBubble
+   370→   370→                key={m.id}
+   371→   371→                m={m}
+   372→   372→                requests={requests}
+   373→   373→                onFillPatient={openPatientFill}
+   374→   374→              />
+   375→   375→            ))}
+   376→   376→          </div>
+   377→   377→        )}
+   378→   378→      </div>
+   379→   379→
+   380→   380→      {/* ===== Composer ===== */}
+   381→   381→      <footer className="border-t border-border bg-card px-2 py-2 sm:px-4">
+   382→   382→        <div className="mb-2">
+   383→   383→          <QuickActionMenu onAction={handleQuickAction} />
+   384→   384→        </div>
+   385→   385→        <div className="flex items-end gap-1.5">
+   386→   386→          {/* Emoji */}
+   387→   387→          <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+   388→   388→            <PopoverTrigger asChild>
+   389→   389→              <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Emoji">
+   390→   390→                <Smile className="h-4 w-4" />
+   391→   391→              </Button>
+   392→   392→            </PopoverTrigger>
+   393→   393→            <PopoverContent align="start" className="w-64 p-2">
+   394→   394→              <div className="grid grid-cols-8 gap-1">
+   395→   395→                {COMMON_EMOJIS.map((e, i) => (
+   396→   396→                  <button
+   397→   397→                    key={`${e}-${i}`}
+   398→   398→                    type="button"
+   399→   399→                    onClick={() => { setInput((s) => s + e); setEmojiOpen(false); }}
+   400→   400→                    className="rounded-md p-1.5 text-lg hover:bg-accent"
+   401→   401→                  >
+   402→   402→                    {e}
+   403→   403→                  </button>
+   404→   404→                ))}
+   405→   405→              </div>
+   406→   406→            </PopoverContent>
+   407→   407→          </Popover>
+   408→   408→
+   409→   409→          {/* Attach */}
+   410→   410→          <Popover open={attachOpen} onOpenChange={setAttachOpen}>
+   411→   411→            <PopoverTrigger asChild>
+   412→   412→              <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Lampiran">
+   413→   413→                <Paperclip className="h-4 w-4" />
+   414→   414→              </Button>
+   415→   415→            </PopoverTrigger>
+   416→   416→            <PopoverContent align="start" className="w-48 p-1">
+   417→   417→              {[
+   418→   418→                { key: "IMAGE" as const, label: "Foto", icon: ImageIcon },
+   419→   419→                { key: "PDF" as const, label: "PDF", icon: FileText },
+   420→   420→                { key: "FILE" as const, label: "File", icon: FileIcon },
+   421→   421→                { key: "LOCATION" as const, label: "Lokasi", icon: MapPin },
+   422→   422→                { key: "STICKER" as const, label: "Sticker", icon: Sparkles },
+   423→   423→              ].map((it) => {
+   424→   424→                const I = it.icon;
+   425→   425→                return (
+   426→   426→                  <button
+   427→   427→                    key={it.key}
+   428→   428→                    type="button"
+   429→   429→                    onClick={() => { sendAttachment(it.key, `[${it.label}]`); setAttachOpen(false); }}
+   430→   430→                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
+   431→   431→                  >
+   432→   432→                    <I className="h-3.5 w-3.5 text-muted-foreground" />
+   433→   433→                    {it.label}
+   434→   434→                  </button>
+   435→   435→                );
+   436→   436→              })}
+   437→   437→            </PopoverContent>
+   438→   438→          </Popover>
+   439→   439→
+   440→   440→          {/* Template */}
+   441→   441→          <Popover open={templateOpen} onOpenChange={setTemplateOpen}>
+   442→   442→            <PopoverTrigger asChild>
+   443→   443→              <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Template pesan">
+   444→   444→                <FileText className="h-4 w-4" />
+   445→   445→              </Button>
+   446→   446→            </PopoverTrigger>
+   447→   447→            <PopoverContent align="start" className="w-72 p-1">
+   448→   448→              <p className="px-2 py-1 text-xs font-semibold text-muted-foreground">Template Pesan</p>
+   449→   449→              {DEFAULT_TEMPLATES.map((t) => (
+   450→   450→                <button
+   451→   451→                  key={t.title}
+   452→   452→                  type="button"
+   453→   453→                  onClick={() => sendTemplate(t)}
+   454→   454→                  className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left hover:bg-accent"
+   455→   455→                >
+   456→   456→                  <span className="text-xs font-medium">{t.title}</span>
+   457→   457→                  <span className="text-[11px] text-muted-foreground line-clamp-2">{t.content}</span>
+   458→   458→                </button>
+   459→   459→              ))}
+   460→   460→            </PopoverContent>
+   461→   461→          </Popover>
+   462→   462→
+   463→   463→          {/* Text input */}
+   464→   464→          <textarea
+   465→   465→            value={input}
+   466→   466→            onChange={(e) => handleInputChange(e.target.value)}
+   467→   467→            onBlur={stopTyping}
+   468→   468→            onKeyDown={(e) => {
+   469→   469→              if (e.key === "Enter" && !e.shiftKey) {
+   470→   470→                e.preventDefault();
+   471→   471→                sendText();
+   472→   472→              }
+   473→   473→            }}
+   474→   474→            placeholder="Tulis pesan…"
+   475→   475→            rows={1}
+   476→   476→            className="max-h-32 min-h-[36px] flex-1 resize-none rounded-full border border-input bg-background px-4 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+   477→   477→          />
+   478→   478→
+   479→   479→          {/* Send */}
+   480→   480→          <Button
+   481→   481→            onClick={() => sendText()}
+   482→   482→            disabled={sending || !input.trim()}
+   483→   483→            size="icon"
+   484→   484→            className="h-9 w-9 shrink-0 rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+   485→   485→            title="Kirim"
+   486→   486→          >
+   487→   487→            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+   488→   488→          </Button>
+   489→   489→        </div>
+   490→   490→      </footer>
+   491→   491→
+   492→   492→      {/* ===== Info Pasien Dialog ===== */}
+   493→   493→      <Dialog open={infoOpen} onOpenChange={setInfoOpen}>
+   494→   494→        <DialogContent className="sm:max-w-md">
+   495→   495→          <DialogHeader>
+   496→   496→            <DialogTitle>Info Pasien</DialogTitle>
+   497→   497→            <DialogDescription>Ringkasan identitas & risiko</DialogDescription>
+   498→   498→          </DialogHeader>
+   499→   499→          {j ? (
+   500→   500→            <div className="space-y-2 text-sm">
+   501→   501→              <InfoRow label="Nama" value={j.nama} />
+   502→   502→              <InfoRow label="Usia" value={`${j.usia} tahun`} />
+   503→   503→              <InfoRow label="Jenis Kelamin" value={j.kelamin === "L" ? "Laki-laki" : "Perempuan"} />
+   504→   504→              <InfoRow label="Kloter" value={j.kloter} />
+   505→   505→              <InfoRow label="Puskesmas" value={j.puskesmas} />
+   506→   506→              <InfoRow label="Dokter Keluarga" value={j.dokterKeluarga} />
+   507→   507→              <InfoRow label="HP" value={j.hp} />
+   508→   508→              <InfoRow label="Kontak Keluarga" value={j.kontakKeluarga} />
+   509→   509→              <div className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2">
+   510→   510→                <span className="text-muted-foreground">Risiko</span>
+   511→   511→                <RiskBadge level={j.riskLevel} />
+   512→   512→              </div>
+   513→   513→              {j.riskSummary && (
+   514→   514→                <p className="rounded-md bg-accent/50 px-3 py-2 text-xs text-muted-foreground">{j.riskSummary}</p>
+   515→   515→              )}
+   516→   516→            </div>
+   517→   517→          ) : (
+   518→   518→            <p className="text-sm text-muted-foreground">Data pasien tidak tersedia.</p>
+   519→   519→          )}
+   520→   520→        </DialogContent>
+   521→   521→      </Dialog>
+   522→   522→
+   523→   523→      {/* ===== Form Dialogs ===== */}
+   524→   524→      <TtvFormDialog jamaahId={jamaahId} open={ttvOpen} onOpenChange={setTtvOpen} onSent={afterRequestSent} />
+   525→   525→      <SkriningFormDialog
+   526→   526→        jamaahId={jamaahId}
+   527→   527→        open={skriningOpen}
+   528→   528→        onOpenChange={setSkriningOpen}
+   529→   529→        onSent={afterRequestSent}
+   530→   530→        initialPhase={j?.tanggalTiba ? "PASCA" : "PRA"}
+   531→   531→      />
+   532→   532→      <EdukasiFormDialog jamaahId={jamaahId} open={edukasiOpen} onOpenChange={setEdukasiOpen} onSent={afterRequestSent} />
+   533→   533→      <ObatFormDialog jamaahId={jamaahId} open={obatOpen} onOpenChange={setObatOpen} onSent={afterRequestSent} />
+   534→   534→      <FileSendDialog jamaahId={jamaahId} open={fileOpen} onOpenChange={setFileOpen} onSent={afterRequestSent} />
+   535→   535→      <SmartMonitoringDialog
+   536→   536→        jamaahId={jamaahId}
+   537→   537→        open={monitoringOpen}
+   538→   538→        onOpenChange={setMonitoringOpen}
+   539→   539→        onSent={afterRequestSent}
+   540→   540→        tanggalTiba={j?.tanggalTiba ?? null}
+   541→   541→      />
+   542→   542→      <PatientFormFillDialog
+   543→   543→        request={patientDialogRequest}
+   544→   544→        open={patientDialogOpen}
+   545→   545→        onOpenChange={setPatientDialogOpen}
+   546→   546→        onSubmitted={afterRequestSent}
+   547→   547→      />
+   548→   548→
+   549→   549→      {/* ===== AI Panel Dialog ===== */}
+   550→   550→      <Dialog open={aiOpen} onOpenChange={setAiOpen}>
+   551→   551→        <DialogContent className="max-h-[92vh] overflow-y-auto scrollbar-thin sm:max-w-2xl">
+   552→   552→          <DialogHeader>
+   553→   553→            <DialogTitle className="flex items-center gap-2">
+   554→   554→              <Sparkles className="h-4 w-4 text-teal-600" />
+   555→   555→              AI Summary Telemedicine
+   556→   556→            </DialogTitle>
+   557→   557→            <DialogDescription>Analisis AI kondisi pasien berbasis chat & rekam medis</DialogDescription>
+   558→   558→          </DialogHeader>
+   559→   559→          <AiSummaryPanel jamaahId={jamaahId} variant="panel" />
+   560→   560→        </DialogContent>
+   561→   561→      </Dialog>
+   562→   562→    </div>
+   563→   563→  );
+   564→   564→}
+   565→   565→
+   566→   566→function InfoRow({ label, value }: { label: string; value: string }) {
+   567→   567→  return (
+   568→   568→    <div className="flex items-center justify-between rounded-md border border-border/60 px-3 py-1.5">
+   569→   569→      <span className="text-muted-foreground">{label}</span>
+   570→   570→      <span className="font-medium text-foreground">{value}</span>
+   571→   571→    </div>
+   572→   572→  );
+   573→   573→}
+   574→   574→
+   575→   575→// ===== Message bubble =====
+   576→   576→function MessageBubble({
+   577→   577→  m, requests, onFillPatient,
+   578→   578→}: {
+   579→   579→  m: ChatMessageData;
+   580→   580→  requests: TelemedicineRequestData[];
+   581→   581→  onFillPatient: (req: TelemedicineRequestData) => void;
+   582→   582→}) {
+   583→   583→  const isDoctor = m.senderType === "DOCTOR";
+   584→   584→  const isSystem = m.senderType === "SYSTEM" || m.senderType === "AI";
+   585→   585→  const I = TYPE_ICON[m.type];
+   586→   586→
+   587→   587→  // System / AI centered
+   588→   588→  if (isSystem) {
+   589→   589→    return (
+   590→   590→      <div className="my-1 flex justify-center">
+   591→   591→        <div className={cn(
+   592→   592→          "flex max-w-md items-start gap-2 rounded-lg border px-3 py-2 text-xs",
+   593→   593→          m.type === "ALERT"
+   594→   594→            ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
+   595→   595→            : "border-border bg-muted text-muted-foreground"
+   596→   596→        )}>
+   597→   597→          {I && <I className="h-3.5 w-3.5 shrink-0 mt-0.5" />}
+   598→   598→          <span className="whitespace-pre-wrap">{m.content}</span>
+   599→   599→        </div>
+   600→   600→      </div>
+   601→   601→    );
+   602→   602→  }
+   603→   603→
+   604→   604→  // Form request / result cards
+   605→   605→  if (m.type === "TTV_REQUEST" || m.type === "SKRINING_REQUEST" || m.type === "EDUKASI" || m.type === "OBAT" || m.type === "MONITORING") {
+   606→   606→    const req = m.requestId ? requests.find((r) => r.id === m.requestId) : null;
+   607→   607→    return (
+   608→   608→      <FormRequestCard m={m} req={req} onFillPatient={onFillPatient} />
+   609→   609→    );
+   610→   610→  }
+   611→   611→
+   612→   612→  if (m.type === "TTV_RESULT" || m.type === "SKRINING_RESULT") {
+   613→   613→    return <FormResultCard m={m} />;
+   614→   614→  }
+   615→   615→
+   616→   616→  if (m.type === "ALERT") {
+   617→   617→    return (
+   618→   618→      <div className="my-1 flex justify-center">
+   619→   619→        <div className="flex max-w-md items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+   620→   620→          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+   621→   621→          <span className="whitespace-pre-wrap">{m.content}</span>
+   622→   622→        </div>
+   623→   623→      </div>
+   624→   624→    );
+   625→   625→  }
+   626→   626→
+   627→   627→  // Attachment placeholders
+   628→   628→  if (m.type === "VOICE" || m.type === "IMAGE" || m.type === "FILE" || m.type === "PDF" || m.type === "LOCATION" || m.type === "STICKER") {
+   629→   629→    return (
+   630→   630→      <BubbleWrap sender={m.senderType} createdAt={m.createdAt} readByJamaah={m.readByJamaah}>
+   631→   631→        <div className="flex items-center gap-2">
+   632→   632→          {I && <I className="h-4 w-4 shrink-0 opacity-70" />}
+   633→   633→          <span className="text-xs">{labelForType(m.type)}: {m.content || m.attachmentName || "—"}</span>
+   634→   634→        </div>
+   635→   635→      </BubbleWrap>
+   636→   636→    );
+   637→   637→  }
+   638→   638→
+   639→   639→  // Default: TEXT or TEMPLATE bubble
+   640→   640→  return (
+   641→   641→    <BubbleWrap sender={m.senderType} createdAt={m.createdAt} readByJamaah={m.readByJamaah}>
+   642→   642→      <p className="whitespace-pre-wrap break-words text-sm">{m.content}</p>
+   643→   643→    </BubbleWrap>
+   644→   644→  );
+   645→   645→}
+   646→   646→
+   647→   647→function labelForType(t: ChatMessageType): string {
+   648→   648→  switch (t) {
+   649→   649→    case "VOICE": return "🎙️ Pesan suara";
+   650→   650→    case "IMAGE": return "📷 Foto";
+   651→   651→    case "PDF": return "📄 PDF";
+   652→   652→    case "FILE": return "📎 File";
+   653→   653→    case "LOCATION": return "📍 Lokasi";
+   654→   654→    case "STICKER": return "🎨 Sticker";
+   655→   655→    default: return t;
+   656→   656→  }
+   657→   657→}
+   658→   658→
+   659→   659→function BubbleWrap({
+   660→   660→  sender, createdAt, readByJamaah, children,
+   661→   661→}: {
+   662→   662→  sender: ChatSenderType;
+   663→   663→  createdAt: string;
+   664→   664→  readByJamaah: boolean;
+   665→   665→  children: React.ReactNode;
+   666→   666→}) {
+   667→   667→  const isDoctor = sender === "DOCTOR";
+   668→   668→  return (
+   669→   669→    <div className={cn("flex", isDoctor ? "justify-end" : "justify-start")}>
+   670→   670→      <div className={cn(
+   671→   671→        "max-w-[80%] rounded-2xl px-3 py-2 shadow-sm sm:max-w-[70%]",
+   672→   672→        isDoctor
+   673→   673→          ? "rounded-br-sm bg-primary text-primary-foreground"
+   674→   674→          : "rounded-bl-sm bg-card text-card-foreground border border-border"
+   675→   675→      )}>
+   676→   676→        {children}
+   677→   677→        <div className={cn(
+   678→   678→          "mt-0.5 flex items-center gap-1 text-[10px]",
+   679→   679→          isDoctor ? "justify-end text-primary-foreground/70" : "text-muted-foreground"
+   680→   680→        )}>
+   681→   681→          <span>{new Date(createdAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</span>
+   682→   682→          {isDoctor && (
+   683→   683→            readByJamaah
+   684→   684→              ? <CheckCheck className="h-3 w-3" />
+   685→   685→              : <Check className="h-3 w-3" />
+   686→   686→          )}
+   687→   687→        </div>
+   688→   688→      </div>
+   689→   689→    </div>
+   690→   690→  );
+   691→   691→}
+   692→   692→
+   693→   693→function FormRequestCard({
+   694→   694→  m, req, onFillPatient,
+   695→   695→}: {
+   696→   696→  m: ChatMessageData;
+   697→   697→  req: TelemedicineRequestData | null | undefined;
+   698→   698→  onFillPatient: (req: TelemedicineRequestData) => void;
+   699→   699→}) {
+   700→   700→  const I = TYPE_ICON[m.type] ?? FileText;
+   701→   701→  const isSubmitted = req?.status === "SUBMITTED";
+   702→   702→  return (
+   703→   703→    <div className="my-1 flex justify-start">
+   704→   704→      <div className="w-full max-w-md rounded-xl border border-border bg-card p-3 shadow-sm">
+   705→   705→        <div className="flex items-center gap-2 border-b border-border/60 pb-2">
+   706→   706→          <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+   707→   707→            <I className="h-3.5 w-3.5" />
+   708→   708→          </span>
+   709→   709→          <div className="min-w-0 flex-1">
+   710→   710→            <p className="text-xs font-semibold text-foreground">
+   711→   711→              {m.content || req?.title || "Form Request"}
+   712→   712→            </p>
+   713→   713→            <p className="text-[10px] text-muted-foreground">
+   714→   714→              {req?.category}{req?.subType ? ` · ${req.subType}` : ""}
+   715→   715→              {req?.hariKe ? ` · Hari ${req.hariKe}` : ""}
+   716→   716→            </p>
+   717→   717→          </div>
+   718→   718→          {req && (
+   719→   719→            isSubmitted ? (
+   720→   720→              <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">✓ Diisi</Badge>
+   721→   721→            ) : (
+   722→   722→              <Badge variant="secondary" className="text-[10px]">Menunggu</Badge>
+   723→   723→            )
+   724→   724→          )}
+   725→   725→        </div>
+   726→   726→        {req && !isSubmitted && (
+   727→   727→          <Button
+   728→   728→            size="sm"
+   729→   729→            variant="outline"
+   730→   730→            className="mt-2 w-full border-primary/30 text-primary hover:bg-primary/5"
+   731→   731→            onClick={() => onFillPatient(req)}
+   732→   732→          >
+   733→   733→            <Smartphone className="mr-1.5 h-3.5 w-3.5" />
+   734→   734→            Isi sebagai Pasien
+   735→   735→          </Button>
+   736→   736→        )}
+   737→   737→        {req && isSubmitted && req.skor && (
+   738→   738→          <div className="mt-2 rounded-md bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 px-2 py-1 text-xs text-emerald-700 dark:text-emerald-300">
+   739→   739→            Hasil: <span className="font-semibold">{req.skor}</span>
+   740→   740→          </div>
+   741→   741→        )}
+   742→   742→        <div className="mt-1.5 text-[10px] text-muted-foreground">
+   743→   743→          {new Date(m.createdAt).toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+   744→   744→          {m.senderType === "DOCTOR" && (m.readByJamaah ? <CheckCheck className="ml-1 inline h-3 w-3" /> : <Check className="ml-1 inline h-3 w-3" />)}
+   745→   745→        </div>
+   746→   746→      </div>
+   747→   747→    </div>
+   748→   748→  );
+   749→   749→}
+   750→   750→
+   751→   751→function FormResultCard({ m }: { m: ChatMessageData }) {
+   752→   752→  const I = TYPE_ICON[m.type] ?? Activity;
+   753→   753→  return (
+   754→   754→    <div className="my-1 flex justify-start">
+   755→   755→      <div className="w-full max-w-md rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50/50 dark:bg-emerald-950/20 p-3">
+   756→   756→        <div className="flex items-center gap-2 border-b border-emerald-200/60 dark:border-emerald-900/60 pb-2">
+   757→   757→          <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">
+   758→   758→            <I className="h-3.5 w-3.5" />
+   759→   759→          </span>
+   760→   760→          <p className="text-xs font-semibold text-foreground">
+   761→   761→            {m.type === "TTV_RESULT" ? "Hasil TTV" : "Hasil Skrining"}
+   762→   762→          </p>
+   763→   763→        </div>
+   764→   764→        <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">{m.content}</p>
+   765→   765→        <div className="mt-1.5 text-[10px] text-muted-foreground">
+   766→   766→          {new Date(m.createdAt).toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+   767→   767→        </div>
+   768→   768→      </div>
+   769→   769→    </div>
+   770→   770→  );
+   771→   771→}
+   772→   772→

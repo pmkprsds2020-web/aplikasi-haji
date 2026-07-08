@@ -60,12 +60,19 @@ export function JamaahFormDialog({ open, onOpenChange, onSaved, initial }: Props
       const { createClient } = await import("@/lib/supabase/client");
       const supabase = createClient();
 
-      // ===== Jamaica payload: email is stored in jamaah table (for auth linking) =====
+      // ===== Auto-set doctor_id to current logged-in dokter =====
+      // When a dokter creates a jamaah, they become the responsible doctor.
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      const doctorId = currentUser?.id ?? null;
+      console.log("[JamaahForm] Auto-setting doctor_id =", doctorId);
+
+      // ===== Jamaica payload: email + doctor_id stored in jamaah table =====
       const payload = {
         nama: f.nama, nik: f.nik, kloter: f.kloter, porsi: f.porsi,
         usia: Number(f.usia), kelamin: f.kelamin,
         alamat: f.alamat ?? "", hp: f.hp ?? "",
         email: f.email?.trim() || null,
+        doctor_id: doctorId,
         kontak_keluarga: f.kontakKeluarga ?? "",
         tanggal_tiba: f.tanggalTiba ? new Date(f.tanggalTiba).toISOString() : new Date().toISOString(),
         bandara: f.bandara ?? "", kabupaten_kota: f.kabupatenKota ?? "",

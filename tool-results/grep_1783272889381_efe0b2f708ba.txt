@@ -1,0 +1,252 @@
+/home/z/my-project/src/lib/serialize.ts:15:} from "./pre-hajj-types";
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:14:import type { PreHajjBundle } from "@/lib/pre-hajj-types";
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:16:// GET /api/jamaah/[id]/pre-haji — bundle semua data pra haji
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:25:      preHajjVitals: { orderBy: { createdAt: "desc" } },
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:26:      preHajjLabs: { orderBy: { createdAt: "desc" } },
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:27:      preHajjChronic: true,
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:28:      preHajjScreenings: { orderBy: { createdAt: "desc" } },
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:29:      preHajjMedications: { orderBy: { createdAt: "desc" } },
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:30:      preHajjImmunizations: { orderBy: { createdAt: "desc" } },
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:31:      preHajjFitness: { orderBy: { createdAt: "desc" } },
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:32:      preHajjEducation: true,
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:33:      preHajjAiAssessments: { orderBy: { createdAt: "desc" } },
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:40:    vitals: j.preHajjVitals.map(serializePreHajjVital),
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:41:    labs: j.preHajjLabs.map(serializePreHajjLab),
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:42:    chronic: j.preHajjChronic ? serializePreHajjChronic(j.preHajjChronic) : null,
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:43:    screenings: j.preHajjScreenings.map(serializePreHajjScreening),
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:44:    medications: j.preHajjMedications.map(serializePreHajjMedication),
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:45:    immunizations: j.preHajjImmunizations.map(serializePreHajjImmunization),
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:46:    fitness: j.preHajjFitness.map(serializePreHajjFitness),
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:47:    education: j.preHajjEducation
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:48:      ? serializePreHajjEducation(j.preHajjEducation)
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/route.ts:50:    aiAssessments: j.preHajjAiAssessments.map(serializePreHajjAiAssessment),
+/home/z/my-project/src/lib/supabase/types.ts:115:      pre_hajj_vital: {
+/home/z/my-project/src/lib/supabase/types.ts:131:        Insert: Omit<Database["public"]["Tables"]["pre_hajj_vital"]["Row"], "id" | "created_at"> & {
+/home/z/my-project/src/lib/supabase/types.ts:135:        Update: Partial<Database["public"]["Tables"]["pre_hajj_vital"]["Insert"]>;
+/home/z/my-project/src/lib/supabase/types.ts:138:      pre_hajj_lab: {
+/home/z/my-project/src/lib/supabase/types.ts:159:        Insert: Omit<Database["public"]["Tables"]["pre_hajj_lab"]["Row"], "id" | "created_at"> & {
+/home/z/my-project/src/lib/supabase/types.ts:163:        Update: Partial<Database["public"]["Tables"]["pre_hajj_lab"]["Insert"]>;
+/home/z/my-project/src/lib/supabase/types.ts:166:      pre_hajj_chronic: {
+/home/z/my-project/src/lib/supabase/types.ts:181:        Insert: Omit<Database["public"]["Tables"]["pre_hajj_chronic"]["Row"], "id" | "updated_at"> & {
+/home/z/my-project/src/lib/supabase/types.ts:185:        Update: Partial<Database["public"]["Tables"]["pre_hajj_chronic"]["Insert"]>;
+/home/z/my-project/src/lib/supabase/types.ts:188:      pre_hajj_screening: {
+/home/z/my-project/src/lib/supabase/types.ts:198:        Insert: Omit<Database["public"]["Tables"]["pre_hajj_screening"]["Row"], "id" | "created_at"> & {
+/home/z/my-project/src/lib/supabase/types.ts:202:        Update: Partial<Database["public"]["Tables"]["pre_hajj_screening"]["Insert"]>;
+/home/z/my-project/src/lib/supabase/types.ts:205:      pre_hajj_medication: {
+/home/z/my-project/src/lib/supabase/types.ts:216:        Insert: Omit<Database["public"]["Tables"]["pre_hajj_medication"]["Row"], "id" | "created_at"> & {
+/home/z/my-project/src/lib/supabase/types.ts:220:        Update: Partial<Database["public"]["Tables"]["pre_hajj_medication"]["Insert"]>;
+/home/z/my-project/src/lib/supabase/types.ts:223:      pre_hajj_immunization: {
+/home/z/my-project/src/lib/supabase/types.ts:233:        Insert: Omit<Database["public"]["Tables"]["pre_hajj_immunization"]["Row"], "id" | "created_at"> & {
+/home/z/my-project/src/lib/supabase/types.ts:237:        Update: Partial<Database["public"]["Tables"]["pre_hajj_immunization"]["Insert"]>;
+/home/z/my-project/src/lib/supabase/types.ts:240:      pre_hajj_fitness: {
+/home/z/my-project/src/lib/supabase/types.ts:252:        Insert: Omit<Database["public"]["Tables"]["pre_hajj_fitness"]["Row"], "id" | "created_at"> & {
+/home/z/my-project/src/lib/supabase/types.ts:256:        Update: Partial<Database["public"]["Tables"]["pre_hajj_fitness"]["Insert"]>;
+/home/z/my-project/src/lib/supabase/types.ts:259:      pre_hajj_education: {
+/home/z/my-project/src/lib/supabase/types.ts:273:        Insert: Omit<Database["public"]["Tables"]["pre_hajj_education"]["Row"], "id" | "updated_at"> & {
+/home/z/my-project/src/lib/supabase/types.ts:277:        Update: Partial<Database["public"]["Tables"]["pre_hajj_education"]["Insert"]>;
+/home/z/my-project/src/lib/supabase/types.ts:280:      pre_hajj_ai_assessment: {
+/home/z/my-project/src/lib/supabase/types.ts:293:        Insert: Omit<Database["public"]["Tables"]["pre_hajj_ai_assessment"]["Row"], "id" | "created_at"> & {
+/home/z/my-project/src/lib/supabase/types.ts:297:        Update: Partial<Database["public"]["Tables"]["pre_hajj_ai_assessment"]["Insert"]>;
+/home/z/my-project/src/lib/pre-hajj-types.ts:136:// Agregat semua data pra haji (respons /api/jamaah/[id]/pre-haji)
+/home/z/my-project/src/lib/pre-hajj-types.ts:279:// GET  /api/jamaah/[id]/pre-haji            → { bundle: PreHajjBundle }
+/home/z/my-project/src/lib/pre-hajj-types.ts:280:// POST /api/jamaah/[id]/pre-haji/vital      → body: PreHajjVitalData (tanpa id/jamaahId/createdAt) → { vital }
+/home/z/my-project/src/lib/pre-hajj-types.ts:281:// POST /api/jamaah/[id]/pre-haji/lab        → body: PreHajjLabData partial → { lab }
+/home/z/my-project/src/lib/pre-hajj-types.ts:282:// PUT  /api/jamaah/[id]/pre-haji/chronic    → body: PreHajjChronicData partial → { chronic }
+/home/z/my-project/src/lib/pre-hajj-types.ts:283:// POST /api/jamaah/[id]/pre-haji/screening  → body: { jenis, data, skor, catatan } → { screening }
+/home/z/my-project/src/lib/pre-hajj-types.ts:284:// POST /api/jamaah/[id]/pre-haji/medication → body: PreHajjMedicationData partial → { medication }
+/home/z/my-project/src/lib/pre-hajj-types.ts:285:// DELETE /api/jamaah/[id]/pre-haji/medication/[medId]
+/home/z/my-project/src/lib/pre-hajj-types.ts:286:// POST /api/jamaah/[id]/pre-haji/immunization → body: { jenis, tanggalVaksin, nomorBatch, catatan } → { immunization }
+/home/z/my-project/src/lib/pre-hajj-types.ts:287:// DELETE /api/jamaah/[id]/pre-haji/immunization/[immId]
+/home/z/my-project/src/lib/pre-hajj-types.ts:288:// POST /api/jamaah/[id]/pre-haji/fitness    → body: PreHajjFitnessData partial → { fitness }
+/home/z/my-project/src/lib/pre-hajj-types.ts:289:// PUT  /api/jamaah/[id]/pre-haji/education  → body: PreHajjEducationData partial → { education }
+/home/z/my-project/src/lib/pre-hajj-types.ts:290:// GET  /api/jamaah/[id]/pre-haji/ai         → { assessment: PreHajjAiAssessmentData } (LLM + simpan)
+/home/z/my-project/src/lib/completeness.ts:2:import type { PreHajjBundle } from "./pre-hajj-types";
+/home/z/my-project/src/lib/completeness.ts:14:  preHajj: PreHajjBundle | null,
+/home/z/my-project/src/lib/completeness.ts:31:  if (preHajj) {
+/home/z/my-project/src/lib/completeness.ts:32:    if (preHajj.vitals.length > 0) praScore++;
+/home/z/my-project/src/lib/completeness.ts:33:    if (preHajj.labs.length > 0) praScore++;
+/home/z/my-project/src/lib/completeness.ts:34:    if (preHajj.chronic) praScore++;
+/home/z/my-project/src/lib/completeness.ts:35:    if (preHajj.screenings.length > 0) praScore++;
+/home/z/my-project/src/lib/completeness.ts:36:    if (preHajj.medications.length > 0) praScore++;
+/home/z/my-project/src/lib/completeness.ts:37:    if (preHajj.immunizations.length > 0) praScore++;
+/home/z/my-project/src/lib/completeness.ts:38:    if (preHajj.fitness.length > 0) praScore++;
+/home/z/my-project/src/lib/completeness.ts:39:    if (preHajj.education) {
+/home/z/my-project/src/lib/completeness.ts:40:      const edu = preHajj.education;
+/home/z/my-project/src/lib/completeness.ts:45:    const hasMeningitis = preHajj.immunizations.some((i) => i.jenis === "MENINGITIS");
+/home/z/my-project/src/hooks/use-supabase-data.ts:22://   • createPreHajjVital(jamaahId, data) — INSERT pre-hajj vital
+/home/z/my-project/src/hooks/use-supabase-data.ts:23://   • createPreHajjLab(jamaahId, data) — INSERT pre-hajj lab
+/home/z/my-project/src/hooks/use-supabase-data.ts:25://   • createPreHajjScreening(jamaahId, data) — INSERT pre-hajj screening
+/home/z/my-project/src/hooks/use-supabase-data.ts:76:  pre_hajj_vitals: PreHajjVitalRow[];
+/home/z/my-project/src/hooks/use-supabase-data.ts:77:  pre_hajj_labs: PreHajjLabRow[];
+/home/z/my-project/src/hooks/use-supabase-data.ts:78:  pre_hajj_chronic: PreHajjChronicRow | null;
+/home/z/my-project/src/hooks/use-supabase-data.ts:79:  pre_hajj_screenings: PreHajjScreeningRow[];
+/home/z/my-project/src/hooks/use-supabase-data.ts:80:  pre_hajj_medications: PreHajjMedicationRow[];
+/home/z/my-project/src/hooks/use-supabase-data.ts:81:  pre_hajj_immunizations: PreHajjImmunizationRow[];
+/home/z/my-project/src/hooks/use-supabase-data.ts:82:  pre_hajj_fitness: PreHajjFitnessRow[];
+/home/z/my-project/src/hooks/use-supabase-data.ts:83:  pre_hajj_education: PreHajjEducationRow | null;
+/home/z/my-project/src/hooks/use-supabase-data.ts:182:      supabase.from("pre_hajj_vital").select("*").eq("jamaah_id", id).order("created_at", { ascending: false }),
+/home/z/my-project/src/hooks/use-supabase-data.ts:183:      supabase.from("pre_hajj_lab").select("*").eq("jamaah_id", id).order("created_at", { ascending: false }),
+/home/z/my-project/src/hooks/use-supabase-data.ts:184:      supabase.from("pre_hajj_chronic").select("*").eq("jamaah_id", id).maybeSingle(),
+/home/z/my-project/src/hooks/use-supabase-data.ts:185:      supabase.from("pre_hajj_screening").select("*").eq("jamaah_id", id).order("created_at", { ascending: false }),
+/home/z/my-project/src/hooks/use-supabase-data.ts:186:      supabase.from("pre_hajj_medication").select("*").eq("jamaah_id", id).order("created_at", { ascending: false }),
+/home/z/my-project/src/hooks/use-supabase-data.ts:187:      supabase.from("pre_hajj_immunization").select("*").eq("jamaah_id", id).order("created_at", { ascending: false }),
+/home/z/my-project/src/hooks/use-supabase-data.ts:188:      supabase.from("pre_hajj_fitness").select("*").eq("jamaah_id", id).order("created_at", { ascending: false }),
+/home/z/my-project/src/hooks/use-supabase-data.ts:189:      supabase.from("pre_hajj_education").select("*").eq("jamaah_id", id).maybeSingle(),
+/home/z/my-project/src/hooks/use-supabase-data.ts:197:      pre_hajj_vitals: (preVitals.data ?? []) as PreHajjVitalRow[],
+/home/z/my-project/src/hooks/use-supabase-data.ts:198:      pre_hajj_labs: (preLabs.data ?? []) as PreHajjLabRow[],
+/home/z/my-project/src/hooks/use-supabase-data.ts:199:      pre_hajj_chronic: (preChronic.data ?? null) as PreHajjChronicRow | null,
+/home/z/my-project/src/hooks/use-supabase-data.ts:200:      pre_hajj_screenings: (preScreenings.data ?? []) as PreHajjScreeningRow[],
+/home/z/my-project/src/hooks/use-supabase-data.ts:201:      pre_hajj_medications: (preMeds.data ?? []) as PreHajjMedicationRow[],
+/home/z/my-project/src/hooks/use-supabase-data.ts:202:      pre_hajj_immunizations: (preImmun.data ?? []) as PreHajjImmunizationRow[],
+/home/z/my-project/src/hooks/use-supabase-data.ts:203:      pre_hajj_fitness: (preFitness.data ?? []) as PreHajjFitnessRow[],
+/home/z/my-project/src/hooks/use-supabase-data.ts:204:      pre_hajj_education: (preEdu.data ?? null) as PreHajjEducationRow | null,
+/home/z/my-project/src/hooks/use-supabase-data.ts:291:  // ===== CREATE: pre-hajj vital =====
+/home/z/my-project/src/hooks/use-supabase-data.ts:293:    const { data: row, error } = await supabase.from("pre_hajj_vital").insert({
+/home/z/my-project/src/hooks/use-supabase-data.ts:305:  // ===== CREATE: pre-hajj lab =====
+/home/z/my-project/src/hooks/use-supabase-data.ts:307:    const { data: row, error } = await supabase.from("pre_hajj_lab").insert({
+/home/z/my-project/src/hooks/use-supabase-data.ts:319:  // ===== UPSERT: pre-hajj chronic =====
+/home/z/my-project/src/hooks/use-supabase-data.ts:329:    const { data: row, error } = await supabase.from("pre_hajj_chronic").upsert(payload, { onConflict: "jamaah_id" }).select("*").single();
+/home/z/my-project/src/hooks/use-supabase-data.ts:334:  // ===== CREATE: pre-hajj screening =====
+/home/z/my-project/src/hooks/use-supabase-data.ts:336:    const { data: row, error } = await supabase.from("pre_hajj_screening").insert({
+/home/z/my-project/src/hooks/use-supabase-data.ts:344:  // ===== CREATE: pre-hajj medication =====
+/home/z/my-project/src/hooks/use-supabase-data.ts:346:    const { data: row, error } = await supabase.from("pre_hajj_medication").insert({
+/home/z/my-project/src/hooks/use-supabase-data.ts:354:  // ===== DELETE: pre-hajj medication =====
+/home/z/my-project/src/hooks/use-supabase-data.ts:356:    const { error } = await supabase.from("pre_hajj_medication").delete().eq("id", id);
+/home/z/my-project/src/hooks/use-supabase-data.ts:361:  // ===== CREATE: pre-hajj immunization =====
+/home/z/my-project/src/hooks/use-supabase-data.ts:363:    const { data: row, error } = await supabase.from("pre_hajj_immunization").insert({
+/home/z/my-project/src/hooks/use-supabase-data.ts:371:  // ===== DELETE: pre-hajj immunization =====
+/home/z/my-project/src/hooks/use-supabase-data.ts:373:    const { error } = await supabase.from("pre_hajj_immunization").delete().eq("id", id);
+/home/z/my-project/src/hooks/use-supabase-data.ts:378:  // ===== CREATE: pre-hajj fitness =====
+/home/z/my-project/src/hooks/use-supabase-data.ts:380:    const { data: row, error } = await supabase.from("pre_hajj_fitness").insert({
+/home/z/my-project/src/hooks/use-supabase-data.ts:389:  // ===== UPSERT: pre-hajj education =====
+/home/z/my-project/src/hooks/use-supabase-data.ts:398:    const { data: row, error } = await supabase.from("pre_hajj_education").upsert(payload, { onConflict: "jamaah_id" }).select("*").single();
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:9:// Replaces the Prisma API routes (/api/jamaah/[id], /api/jamaah/[id]/pre-haji)
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:209:  pre_hajj_vitals: SupabasePreHajjVital[];
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:210:  pre_hajj_labs: SupabasePreHajjLab[];
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:211:  pre_hajj_chronic: SupabasePreHajjChronic | null;
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:212:  pre_hajj_screenings: SupabasePreHajjScreening[];
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:213:  pre_hajj_medications: SupabasePreHajjMedication[];
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:214:  pre_hajj_immunizations: SupabasePreHajjImmunization[];
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:215:  pre_hajj_fitness: SupabasePreHajjFitness[];
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:216:  pre_hajj_education: SupabasePreHajjEducation | null;
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:223:  { key: "pre_hajj_vitals", table: "pre_hajj_vital" },
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:224:  { key: "pre_hajj_labs", table: "pre_hajj_lab" },
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:225:  { key: "pre_hajj_screenings", table: "pre_hajj_screening" },
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:226:  { key: "pre_hajj_medications", table: "pre_hajj_medication" },
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:227:  { key: "pre_hajj_immunizations", table: "pre_hajj_immunization" },
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:228:  { key: "pre_hajj_fitness", table: "pre_hajj_fitness" },
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:285:        .from("pre_hajj_chronic")
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:291:        .from("pre_hajj_education")
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:306:      detailObj.pre_hajj_chronic = chronic as SupabasePreHajjChronic | null;
+/home/z/my-project/src/hooks/use-supabase-jamaah-detail.ts:307:      detailObj.pre_hajj_education = education as SupabasePreHajjEducation | null;
+/home/z/my-project/src/hooks/use-supabase-health.ts:199:  { key: "riwayat", label: "riwayat (pre_hajj_screening)", table: "pre_hajj_screening" },
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/lab/route.ts:5:// POST /api/jamaah/[id]/pre-haji/lab — tambah hasil lab pra haji
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/lab/route.ts:20:  const created = await db.preHajjLab.create({
+/home/z/my-project/src/components/haji/riwayat-tab.tsx:14:import type { PreHajjBundle } from "@/lib/pre-hajj-types";
+/home/z/my-project/src/components/haji/riwayat-tab.tsx:15:import { PRE_HAJJ_SCREENING_META } from "@/lib/pre-hajj-types";
+/home/z/my-project/src/components/haji/riwayat-tab.tsx:21:  preHajj: PreHajjBundle | null;
+/home/z/my-project/src/components/haji/riwayat-tab.tsx:43:export function RiwayatTab({ jamaah, preHajj }: Props) {
+/home/z/my-project/src/components/haji/riwayat-tab.tsx:58:    if (preHajj) {
+/home/z/my-project/src/components/haji/riwayat-tab.tsx:59:      preHajj.vitals.forEach((v) =>
+/home/z/my-project/src/components/haji/riwayat-tab.tsx:69:      preHajj.labs.forEach((l) =>
+/home/z/my-project/src/components/haji/riwayat-tab.tsx:79:      preHajj.screenings.forEach((s) => {
+/home/z/my-project/src/components/haji/riwayat-tab.tsx:91:      preHajj.medications.forEach((m) =>
+/home/z/my-project/src/components/haji/riwayat-tab.tsx:101:      preHajj.immunizations.forEach((im) =>
+/home/z/my-project/src/components/haji/riwayat-tab.tsx:112:      preHajj.fitness.forEach((f) =>
+/home/z/my-project/src/components/haji/riwayat-tab.tsx:122:      if (preHajj.education) {
+/home/z/my-project/src/components/haji/riwayat-tab.tsx:123:        const edu = preHajj.education;
+/home/z/my-project/src/components/haji/riwayat-tab.tsx:135:      preHajj.aiAssessments.forEach((a) =>
+/home/z/my-project/src/components/haji/riwayat-tab.tsx:197:  }, [jamaah, preHajj]);
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/medication/route.ts:5:// POST /api/jamaah/[id]/pre-haji/medication — tambah obat pra haji
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/medication/route.ts:20:  const created = await db.preHajjMedication.create({
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:45:import type { PreHajjBundle, PreHajjSubTab } from "@/lib/pre-hajj-types";
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:46:import { PRE_HAJJ_SUBTABS } from "@/lib/pre-hajj-types";
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:47:import { getIcon } from "./pre-hajj/pre-hajj-sub-views-utils";
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:56:} from "./pre-hajj/pre-hajj-sub-views";
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:71:  const [preHajj, setPreHajj] = React.useState<PreHajjBundle | null>(null);
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:115:        supabase.from("pre_hajj_vital").select("*").eq("jamaah_id", selectedJamaahId).order("created_at", { ascending: false }),
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:116:        supabase.from("pre_hajj_lab").select("*").eq("jamaah_id", selectedJamaahId).order("created_at", { ascending: false }),
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:117:        supabase.from("pre_hajj_chronic").select("*").eq("jamaah_id", selectedJamaahId).maybeSingle(),
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:118:        supabase.from("pre_hajj_screening").select("*").eq("jamaah_id", selectedJamaahId).order("created_at", { ascending: false }),
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:119:        supabase.from("pre_hajj_medication").select("*").eq("jamaah_id", selectedJamaahId).order("created_at", { ascending: false }),
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:120:        supabase.from("pre_hajj_immunization").select("*").eq("jamaah_id", selectedJamaahId).order("created_at", { ascending: false }),
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:121:        supabase.from("pre_hajj_fitness").select("*").eq("jamaah_id", selectedJamaahId).order("created_at", { ascending: false }),
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:122:        supabase.from("pre_hajj_education").select("*").eq("jamaah_id", selectedJamaahId).maybeSingle(),
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:203:      // 4. Map pre-hajj bundle
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:355:  const completeness = computeCompleteness(j, preHajj, pascaScreeningCount, pascaVitalCount);
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:379:        "pre_hajj_vital", "pre_hajj_lab", "pre_hajj_chronic",
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:380:        "pre_hajj_screening", "pre_hajj_medication", "pre_hajj_immunization",
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:381:        "pre_hajj_fitness", "pre_hajj_education", "pre_hajj_ai_assessment",
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:527:          {preHajj ? (
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:529:              {preSubTab === "ringkasan" && <RingkasanSubView jamaahId={j.id} bundle={preHajj} onChanged={load} />}
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:530:              {preSubTab === "ttv" && <TtvSubView jamaahId={j.id} bundle={preHajj} onChanged={load} />}
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:531:              {preSubTab === "lab" && <LabSubView jamaahId={j.id} bundle={preHajj} onChanged={load} />}
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:532:              {preSubTab === "kronis" && <KronisSubView jamaahId={j.id} bundle={preHajj} onChanged={load} />}
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:533:              {preSubTab === "skrining" && <SkriningSubView jamaahId={j.id} bundle={preHajj} onChanged={load} />}
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:534:              {preSubTab === "obat" && <ObatSubView jamaahId={j.id} bundle={preHajj} onChanged={load} />}
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:535:              {preSubTab === "imunisasi" && <ImunisasiSubView jamaahId={j.id} bundle={preHajj} onChanged={load} />}
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:536:              {preSubTab === "kebugaran" && <KebugaranSubView jamaahId={j.id} bundle={preHajj} onChanged={load} />}
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:537:              {preSubTab === "edukasi" && <EdukasiSubView jamaahId={j.id} bundle={preHajj} onChanged={load} />}
+/home/z/my-project/src/components/haji/jamaah-detail-view.tsx:600:          <RiwayatTab jamaah={j} preHajj={preHajj} />
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-medication-dialog.tsx:56:      const { data, error } = await supabase.from("pre_hajj_medication").insert(payload).select();
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-vitals-chart.tsx:9:import type { PreHajjVitalData } from "@/lib/pre-hajj-types";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-immunization-list.tsx:10:import type { PreHajjImmunizationData } from "@/lib/pre-hajj-types";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-immunization-list.tsx:36:      const { data, error } = await supabase.from("pre_hajj_immunization").delete().eq("id", id);
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-screening-dialog.tsx:13:import { PRE_HAJJ_SCREENING_META } from "@/lib/pre-hajj-types";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-screening-dialog.tsx:14:import type { PreHajjScreeningJenis } from "@/lib/pre-hajj-types";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-screening-dialog.tsx:154:      const { data: resData, error } = await supabase.from("pre_hajj_screening").insert(payload).select();
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-sub-views.tsx:29:} from "@/lib/pre-hajj-types";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-sub-views.tsx:32:import { PreHajjVitalDialog } from "./pre-hajj-vital-dialog";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-sub-views.tsx:33:import { PreHajjLabDialog } from "./pre-hajj-lab-dialog";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-sub-views.tsx:34:import { PreHajjChronicForm } from "./pre-hajj-chronic-form";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-sub-views.tsx:35:import { PreHajjScreeningDialog } from "./pre-hajj-screening-dialog";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-sub-views.tsx:36:import { PreHajjMedicationDialog } from "./pre-hajj-medication-dialog";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-sub-views.tsx:37:import { PreHajjMedicationList } from "./pre-hajj-medication-list";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-sub-views.tsx:38:import { PreHajjImmunizationDialog } from "./pre-hajj-immunization-dialog";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-sub-views.tsx:39:import { PreHajjImmunizationList } from "./pre-hajj-immunization-list";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-sub-views.tsx:40:import { PreHajjFitnessDialog } from "./pre-hajj-fitness-dialog";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-sub-views.tsx:41:import { PreHajjEducationForm } from "./pre-hajj-education-form";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-sub-views.tsx:42:import { PreHajjVitalsChart } from "./pre-hajj-vitals-chart";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-sub-views.tsx:43:import { PreHajjLabChart } from "./pre-hajj-lab-chart";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-sub-views.tsx:291:// AI block — loads from /api/jamaah/[id]/pre-haji/ai
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-sub-views.tsx:306:      const res = await fetch(`/api/jamaah/${jamaahId}/pre-haji/ai`);
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-education-form.tsx:13:import type { PreHajjEducationData } from "@/lib/pre-hajj-types";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-education-form.tsx:59:        .from("pre_hajj_education")
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-lab-dialog.tsx:71:      const { data, error } = await supabase.from("pre_hajj_lab").insert(payload).select();
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-immunization-dialog.tsx:60:      const { data, error } = await supabase.from("pre_hajj_immunization").insert(payload).select();
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-vital-dialog.tsx:76:      const { data, error } = await supabase.from("pre_hajj_vital").insert(payload).select();
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-medication-list.tsx:9:import type { PreHajjMedicationData } from "@/lib/pre-hajj-types";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-medication-list.tsx:25:      const { data, error } = await supabase.from("pre_hajj_medication").delete().eq("id", id);
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-lab-chart.tsx:9:import type { PreHajjLabData } from "@/lib/pre-hajj-types";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-chronic-form.tsx:16:import type { PreHajjChronicData } from "@/lib/pre-hajj-types";
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-chronic-form.tsx:77:        .from("pre_hajj_chronic")
+/home/z/my-project/src/components/haji/pre-hajj/pre-hajj-fitness-dialog.tsx:54:      const { data, error } = await supabase.from("pre_hajj_fitness").insert(payload).select();
+/home/z/my-project/src/components/haji/jamaah-views/jamaah-riwayat.tsx:131:        supabase.from("pre_hajj_lab").select("*").eq("jamaah_id", j.id)
+/home/z/my-project/src/components/haji/jamaah-views/jamaah-riwayat.tsx:149:        supabase.from("pre_hajj_screening").select("*").eq("jamaah_id", j.id)
+/home/z/my-project/src/components/haji/jamaah-views/jamaah-riwayat.tsx:158:        supabase.from("pre_hajj_chronic").select("*").eq("jamaah_id", j.id)
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/medication/[medId]/route.ts:4:// DELETE /api/jamaah/[id]/pre-haji/medication/[medId]
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/medication/[medId]/route.ts:10:  const med = await db.preHajjMedication.findUnique({ where: { id: medId } });
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/medication/[medId]/route.ts:14:  await db.preHajjMedication.delete({ where: { id: medId } });
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/immunization/route.ts:5:// POST /api/jamaah/[id]/pre-haji/immunization — tambah imunisasi pra haji
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/immunization/route.ts:24:  const created = await db.preHajjImmunization.create({
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/immunization/[immId]/route.ts:4:// DELETE /api/jamaah/[id]/pre-haji/immunization/[immId]
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/immunization/[immId]/route.ts:10:  const imm = await db.preHajjImmunization.findUnique({ where: { id: immId } });
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/immunization/[immId]/route.ts:17:  await db.preHajjImmunization.delete({ where: { id: immId } });
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/fitness/route.ts:5:// POST /api/jamaah/[id]/pre-haji/fitness — tambah record kebugaran pra haji
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/fitness/route.ts:20:  const created = await db.preHajjFitness.create({
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/chronic/route.ts:5:// PUT /api/jamaah/[id]/pre-haji/chronic — upsert data penyakit kronis pra haji
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/chronic/route.ts:29:  const upserted = await db.preHajjChronic.upsert({
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/screening/route.ts:4:import type { PreHajjScreeningJenis } from "@/lib/pre-hajj-types";
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/screening/route.ts:6:// POST /api/jamaah/[id]/pre-haji/screening — tambah hasil skrining pra haji
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/screening/route.ts:22:  const created = await db.preHajjScreening.create({
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/education/route.ts:5:// PUT /api/jamaah/[id]/pre-haji/education — upsert checklist edukasi pra haji
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/education/route.ts:30:  const upserted = await db.preHajjEducation.upsert({
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/ai/route.ts:14:import type { PreHajjScreeningJenis } from "@/lib/pre-hajj-types";
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/ai/route.ts:16:// GET /api/jamaah/[id]/pre-haji/ai — LLM Pra-Haji Assessment (istithaah)
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/ai/route.ts:25:      preHajjVitals: { orderBy: { createdAt: "desc" } },
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/ai/route.ts:26:      preHajjLabs: { orderBy: { createdAt: "desc" } },
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/ai/route.ts:27:      preHajjChronic: true,
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/ai/route.ts:28:      preHajjScreenings: { orderBy: { createdAt: "desc" } },
+/home/z/my-project/src/app/api/jamaah/[id]/pre-haji/ai/route.ts:29:      preHajjMedications: { orderBy: { createdAt: "desc" } },
+
+[Showing results with pagination = limit: 250]
