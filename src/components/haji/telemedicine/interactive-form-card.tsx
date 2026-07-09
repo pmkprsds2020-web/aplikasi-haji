@@ -117,36 +117,48 @@ export function InteractiveFormCard({
     if (!request) return;
     setSubmitting(true);
     try {
-      const supabase = createClient();
       console.log("[InteractiveFormCard] Submitting form. requestId:", request.id, "| data:", formData);
 
-      // Update telemedicine_request: status → SUBMITTED, response → JSON, skor
-      const { error: updateErr } = await supabase
-        .from("telemedicine_request")
-        .update({
-          status: "SUBMITTED",
-          submitted_at: new Date().toISOString(),
-          response: JSON.stringify(formData),
+      // ===== Call the submit API — this writes to clinical tables (vital_sign, screening) =====
+      // The API route /api/telemedicine/request/[requestId]/submit does:
+      //   1. Update telemedicine_request (status → SUBMITTED, response → JSON)
+      //   2. Insert into vital_sign (if category=TTV)
+      //   3. Insert into screening (if category=SKRINING)
+      //   4. Recompute risk
+      //   5. Create result chat_message
+      //   6. Create alert messages if needed
+      const res = await fetch(`/api/telemedicine/request/${request.id}/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          response: formData,
           skor: formData.skor ?? formData.score ?? null,
-        })
-        .eq("id", request.id);
+        }),
+      });
 
-      if (updateErr) {
-        console.error("[InteractiveFormCard] submit error:", updateErr.message);
-        toast.error("Gagal mengirim form", { description: updateErr.message });
-        return;
+      const result = await res.json();
+      console.log("[InteractiveFormCard] Submit API response:", result);
+
+      if (!res.ok) {
+        throw new Error(result.error ?? "Gagal mengirim form");
       }
 
-      console.log("[InteractiveFormCard] Form submitted successfully!");
-      toast.success("Form berhasil dikirim ke dokter");
+      console.log("[InteractiveFormCard] Form submitted successfully! Data saved to clinical tables.");
+      toast.success("Form berhasil dikirim ke dokter. Data tersimpan di Riwayat Kesehatan.");
 
       // Update local state
-      setRequest({ ...request, status: "SUBMITTED", submitted_at: new Date().toISOString(), response: JSON.stringify(formData) });
+      setRequest({
+        ...request,
+        status: "SUBMITTED",
+        submitted_at: new Date().toISOString(),
+        response: JSON.stringify(formData),
+        skor: formData.skor ?? formData.score ?? null,
+      });
       setShowForm(false);
       onFormSubmitted?.();
     } catch (e) {
       console.error("[InteractiveFormCard] submit exception:", e);
-      toast.error("Gagal mengirim form");
+      toast.error("Gagal mengirim form", { description: e instanceof Error ? e.message : String(e) });
     } finally {
       setSubmitting(false);
     }
