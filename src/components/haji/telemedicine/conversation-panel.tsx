@@ -109,6 +109,8 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
   const [requests, setRequests] = React.useState<TelemedicineRequestData[]>([]);
   const [jamaah, setJamaah] = React.useState<JamaahData | null>(jamaahProp);
   const [input, setInput] = React.useState("");
+  const inputRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const inputValRef = React.useRef(""); // always tracks latest input value
   const [infoOpen, setInfoOpen] = React.useState(false);
 
   // Dialogs
@@ -304,7 +306,9 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
 
   // ===== Typing =====
   const handleInputChange = (v: string) => {
+    console.log("[DoctorChat] handleInputChange:", v);
     setInput(v);
+    inputValRef.current = v; // keep ref in sync
     if (!isConnected) return;
     if (!isTypingNow.current) {
       isTypingNow.current = true;
@@ -327,28 +331,60 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
 
   // ===== Send text via Supabase INSERT =====
   async function sendText(content?: string) {
-    const text = (content ?? input).trim();
+    // Use ref to get the latest input value (avoids stale closure)
+    const text = (content ?? inputValRef.current).trim();
     if (!text) return; // prevent empty/whitespace-only messages
     // ===== Null-ID validation: silent return (no error toast) =====
     if (!jamaahId) return;
+
+    console.log("[DoctorChat] ===== BEFORE SEND =====");
+    console.log("[DoctorChat] text:", text);
+    console.log("[DoctorChat] input state (before):", input);
+    console.log("[DoctorChat] inputValRef (before):", inputValRef.current);
+
     stopTyping();
 
-    // Clear input IMMEDIATELY (before async) so user sees it empty
-    const savedInput = input;
+    // Clear input IMMEDIATELY (before async) — both state AND ref AND DOM
+    const savedInput = inputValRef.current;
     setInput("");
+    inputValRef.current = "";
+    if (inputRef.current) {
+      inputRef.current.value = "";
+    }
+    console.log("[DoctorChat] ===== AFTER CLEAR INPUT =====");
+    console.log("[DoctorChat] input state (after clear):", "");
+    console.log("[DoctorChat] inputValRef (after clear):", inputValRef.current);
 
     const inserted = await supabaseSend({
       senderType: "DOCTOR",
       type: "TEXT",
       content: text,
     });
+
+    console.log("[DoctorChat] ===== AFTER INSERT =====");
+    console.log("[DoctorChat] inserted:", !!inserted);
+    console.log("[DoctorChat] input state (after insert):", input);
+    console.log("[DoctorChat] inputValRef (after insert):", inputValRef.current);
+
     if (inserted) {
       toast.success("Pesan terkirim");
+      // Refocus input for next message
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
     } else {
       // Restore input on failure so user doesn't lose their message
       setInput(savedInput);
+      inputValRef.current = savedInput;
+      if (inputRef.current) {
+        inputRef.current.value = savedInput;
+      }
       toast.error("Gagal mengirim pesan");
     }
+
+    console.log("[DoctorChat] ===== AFTER SEND COMPLETE =====");
+    console.log("[DoctorChat] input state (final):", input);
+    console.log("[DoctorChat] inputValRef (final):", inputValRef.current);
   }
 
   // ===== Send attachment placeholder via Supabase INSERT =====
@@ -565,13 +601,14 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
 
           {/* Text input */}
           <textarea
+            ref={inputRef}
             value={input}
             onChange={(e) => handleInputChange(e.target.value)}
             onBlur={stopTyping}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                sendText();
+                void sendText();
               }
             }}
             placeholder="Tulis pesan…"
