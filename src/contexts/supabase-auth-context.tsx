@@ -172,13 +172,65 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
 
   const signUp = React.useCallback(
     async (email: string, password: string, fullName: string, role: UserRole = "dokter") => {
-      // Step 1: Create auth account
+      // Validate role
+      if (role !== "dokter" && role !== "jamaah") {
+        return { error: "Role tidak valid. Harus 'dokter' atau 'jamaah'." };
+      }
+
+      console.log("[Auth] signUp: email =", email, "| fullName =", fullName, "| role =", role);
+
+      // Step 1: Create auth account with role in user metadata
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: { data: { full_name: fullName, role } },
       });
       if (error) return { error: error.message };
+
+      console.log("[Auth] signUp: auth user created. id =", data.user?.id);
+
+      // Step 2: Explicitly set the role in profiles table
+      // The handle_new_user trigger should do this, but we do it explicitly
+      // to ensure the role is correct (in case the trigger defaults wrong).
+      if (data.user) {
+        try {
+          console.log("[Auth] signUp: explicitly setting profiles.role =", role);
+          const { error: profileErr } = await supabase
+            .from("profiles")
+            .upsert({
+              id: data.user.id,
+              email: email,
+              full_name: fullName,
+              role: role,
+            }, { onConflict: "id" });
+
+          if (profileErr) {
+            console.warn("[Auth] signUp: profiles upsert error:", profileErr.message);
+            // Try UPDATE instead (in case profile already exists from trigger)
+            const { error: updateErr } = await supabase
+              .from("profiles")
+              .update({ role: role, email: email, full_name: fullName })
+              .eq("id", data.user.id);
+            if (updateErr) {
+              console.warn("[Auth] signUp: profiles update error:", updateErr.message);
+            } else {
+              console.log("[Auth] signUp: profiles.role updated to", role);
+            }
+          } else {
+            console.log("[Auth] signUp: profiles upserted with role =", role);
+          }
+
+          // Verify the role was saved
+          const { data: verifyProfile, error: verifyErr } = await supabase
+            .from("profiles")
+            .select("role, email")
+            .eq("id", data.user.id)
+            .maybeSingle();
+          console.log("[Auth] signUp: verify profile =", verifyProfile, "error =", verifyErr);
+        } catch (e) {
+          console.warn("[Auth] signUp: profile set exception:", e);
+        }
+      }
 
       // Step 2: If role is jamaah, link auth.uid() to existing jamaah record
       // Architecture: auth.users → profiles (id = auth.uid()) → jamaah (user_id = auth.uid(), email = ...)
