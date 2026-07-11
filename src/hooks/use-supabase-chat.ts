@@ -129,19 +129,7 @@ export function useSupabaseChat(jamaahId: string | null) {
     console.log("[ensureRoom] newRoomError:", newRoomError);
 
     if (newRoomError) {
-      const pgError = newRoomError.message || String(newRoomError);
-      const pgCode = (newRoomError as { code?: string }).code ?? "";
-      console.error("[ensureRoom] INSERT failed:", pgCode, pgError);
-      alert(
-        `Gagal membuat ruang chat.\n\nPostgreSQL Error [${pgCode}]:\n${pgError}\n\n` +
-        `Payload yang dikirim:\n` +
-        `  jamaah_id: ${jamaahId}\n` +
-        `  doctor_id: ${user.id}\n\n` +
-        `Kemungkinan penyebab:\n` +
-        `  1. jamaah_id tidak valid (harus UUID yang ada di tabel jamaah)\n` +
-        `  2. RLS Policy menolak INSERT\n` +
-        `  3. auth.uid() tidak tersedia`
-      );
+      console.error("[ensureRoom] INSERT failed:", newRoomError.code, newRoomError.message);
       return null;
     }
 
@@ -243,7 +231,6 @@ export function useSupabaseChat(jamaahId: string | null) {
       // --- Guard: jamaahId ---
       if (!jamaahId) {
         console.error("[sendMessage] EXIT: jamaahId is null");
-        alert("Gagal: ID Jamaah tidak ditemukan.");
         return null;
       }
       console.log("[sendMessage] step 2: jamaahId OK");
@@ -251,7 +238,6 @@ export function useSupabaseChat(jamaahId: string | null) {
       // --- Guard: user ---
       if (!user) {
         console.error("[sendMessage] EXIT: user is null — not authenticated");
-        alert("Gagal: Anda belum terautentikasi. Silakan masuk kembali.");
         return null;
       }
       console.log("[sendMessage] step 3: user OK, id =", user.id);
@@ -313,53 +299,45 @@ export function useSupabaseChat(jamaahId: string | null) {
         setSending(false);
 
         if (messageError) {
-          // ===== Show real PostgreSQL error =====
+          // ===== INSERT FAILED — only show error here =====
           const pgError = messageError.message || String(messageError);
           const pgCode = (messageError as { code?: string }).code ?? "";
-          const pgDetails = (messageError as { details?: string }).details ?? "";
-          const pgHint = (messageError as { hint?: string }).hint ?? "";
-          console.error("[sendMessage] INSERT FAILED:", pgCode, pgError, pgDetails, pgHint);
-          alert(
-            `Gagal mengirim pesan ke tabel chat_message.\n\n` +
-            `PostgreSQL Error Code: ${pgCode}\n` +
-            `Message: ${pgError}\n` +
-            (pgDetails ? `Details: ${pgDetails}\n` : "") +
-            (pgHint ? `Hint: ${pgHint}\n` : "") +
-            `\nPayload yang dikirim:\n` +
-            `  room_id: ${rId}\n` +
-            `  sender_type: ${input.senderType}\n` +
-            `  sender_name: ${senderName}\n` +
-            `  type: ${input.type}\n` +
-            `  content: ${input.content}`
-          );
+          console.error("[sendMessage] INSERT FAILED:", pgCode, pgError);
+          console.log("Insert Message error:", messageError);
           return null;
         }
 
         console.log("[sendMessage] step 10: INSERT succeeded (no error)");
 
         // ===== After INSERT succeeds, REFRESH data via select() =====
-        console.log("[sendMessage] step 11: refreshing messages via select()...");
-        await fetchMessages(rId);
-        console.log("[sendMessage] step 12: refresh complete");
-
-        // Update room's last_message_at (fire-and-forget)
-        const { error: roomUpdateErr } = await supabase
-          .from("chat_room")
-          .update({ last_message_at: new Date().toISOString() })
-          .eq("id", rId);
-        if (roomUpdateErr) {
-          console.warn("[sendMessage] last_message_at update failed:", roomUpdateErr.message);
+        // Wrap in separate try/catch so refresh errors don't affect the send result
+        try {
+          console.log("[sendMessage] step 11: refreshing messages via select()...");
+          await fetchMessages(rId);
+          console.log("[sendMessage] step 12: refresh complete");
+        } catch (refreshErr) {
+          console.warn("[sendMessage] Refresh UI error (non-fatal):", refreshErr);
         }
 
-        console.log("[sendMessage] ✓ DONE — message should be in chat_message table");
-        return null; // Realtime + refresh handle the UI
+        // Update room's last_message_at (fire-and-forget, non-fatal)
+        try {
+          const { error: roomUpdateErr } = await supabase
+            .from("chat_room")
+            .update({ last_message_at: new Date().toISOString() })
+            .eq("id", rId);
+          if (roomUpdateErr) {
+            console.warn("[sendMessage] last_message_at update failed (non-fatal):", roomUpdateErr.message);
+          }
+        } catch (roomErr) {
+          console.warn("[sendMessage] Room update exception (non-fatal):", roomErr);
+        }
+
+        console.log("[sendMessage] ✓ DONE — message inserted successfully");
+        // Return a truthy object to indicate success (callers check if (inserted))
+        return { id: "sent", room_id: rId, sender_type: input.senderType, sender_name: senderName, type: input.type, content: input.content, attachment_url: input.attachmentUrl ?? null, attachment_name: input.attachmentName ?? null, request_id: input.requestId ?? null, read_by_doctor: true, read_by_jamaah: false, created_at: new Date().toISOString() } as ChatMessageRow;
       } catch (err) {
         setSending(false);
         console.error("[sendMessage] EXCEPTION (uncaught):", err);
-        alert(
-          `Exception saat mengirim pesan:\n\n${err instanceof Error ? err.message : String(err)}\n\n` +
-          `Stack: ${err instanceof Error ? err.stack : "no stack"}`
-        );
         return null;
       }
     },
