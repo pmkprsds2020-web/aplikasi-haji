@@ -18,7 +18,7 @@ export type ViewName =
   | "jamaah-profil";   // jamaah: profil saya
 
 // Tab utama halaman Detail Jamaah (EHHR)
-export type DetailMainTab = "profil" | "pra-haji" | "pasca-haji" | "riwayat";
+export type DetailMainTab = "profil" | "pra-haji" | "pasca-haji" | "riwayat" | "pemeriksaan";
 
 interface AppState {
   view: ViewName;

@@ -16,7 +16,7 @@ import {
   ArrowLeft, User, Plane, Activity, History, Sparkles, Pencil,
   Phone, MapPin, Calendar, Stethoscope, Users, ShieldCheck, MessageCircle,
   LayoutDashboard, TestTube, ClipboardList, HeartPulse, Pill,
-  Plus, Save, Loader2, Trash2,
+  Plus, Save, Loader2, Trash2, FileText,
   type LucideIcon,
 } from "lucide-react";
 import { useApp, type DetailMainTab } from "@/lib/store";
@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { JamaahFormDialog } from "./jamaah-form-dialog";
+import { PemeriksaanPenunjangView } from "./pemeriksaan-penunjang-view";
 import { ScreeningDialog } from "./screening-dialog";
 import { VitalSignDialog } from "./vital-sign-dialog";
 import { VitalSignsChart } from "./vital-signs-chart";
@@ -67,6 +68,7 @@ const MAIN_TABS: { key: DetailMainTab; label: string; icon: LucideIcon }[] = [
   { key: "pra-haji", label: "Pra Haji", icon: ShieldCheck },
   { key: "pasca-haji", label: "Pasca Haji", icon: Activity },
   { key: "riwayat", label: "Riwayat", icon: History },
+  { key: "pemeriksaan", label: "Pemeriksaan Penunjang", icon: FileText },
 ];
 
 export function JamaahDetailView() {
@@ -343,6 +345,17 @@ export function JamaahDetailView() {
         {/* RIWAYAT */}
         <TabsContent value="riwayat">
           <RiwayatTab jamaah={j} preHajj={preHajj} />
+        </TabsContent>
+
+        {/* PEMERIKSAAN PENUNJANG */}
+        <TabsContent value="pemeriksaan">
+          <PemeriksaanPenunjangView
+            jamaahId={j.id}
+            onSendToTelemedicine={(fileUrl, fileName, keterangan) => {
+              goTelemedicine(j.id);
+              toast.info("File siap dikirim via Telemedicine", { description: fileName });
+            }}
+          />
         </TabsContent>
       </Tabs>
 
