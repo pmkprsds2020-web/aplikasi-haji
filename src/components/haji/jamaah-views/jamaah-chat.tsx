@@ -91,10 +91,32 @@ export function JamaahChat() {
   const [loadError, setLoadError] = React.useState<string | null>(null);
 
   const [input, setInput] = React.useState("");
+  const inputValRef = React.useRef(""); // always tracks latest input value
+  const inputRef = React.useRef<HTMLTextAreaElement | null>(null);
   const [emojiOpen, setEmojiOpen] = React.useState(false);
   const [attachOpen, setAttachOpen] = React.useState(false);
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const bottomRef = React.useRef<HTMLDivElement>(null);
+  const isNearBottomRef = React.useRef(true);
+
+  // ===== Smart scroll to bottom =====
+  const scrollToBottom = React.useCallback((smooth: boolean = true) => {
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({
+        behavior: smooth ? "smooth" : "auto",
+        block: "end",
+      });
+    }
+  }, []);
+
+  // ===== Track scroll position =====
+  const handleScroll = React.useCallback(() => {
+    if (scrollRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+      isNearBottomRef.current = scrollHeight - scrollTop - clientHeight < 150;
+    }
+  }, []);
 
   // ===== 1. On mount: fetch jamaah record by user_id =====
   React.useEffect(() => {
@@ -414,16 +436,21 @@ export function JamaahChat() {
     };
   }, [supabase, user, jamaah]);
 
-  // ===== Auto-scroll to bottom on new messages =====
+  // ===== Auto-scroll to bottom on new message (smart: only if user is near bottom) =====
   React.useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (isNearBottomRef.current) {
+      scrollToBottom(false);
     }
-  }, [messages.length]);
+  }, [messages.length, scrollToBottom]);
+
+  // ===== Scroll to bottom when chat first opens =====
+  React.useEffect(() => {
+    setTimeout(() => scrollToBottom(false), 100);
+  }, [roomId, scrollToBottom]);
 
   // ===== Send a TEXT message =====
   async function sendText(content?: string) {
-    const text = (content ?? input).trim();
+    const text = (content ?? inputValRef.current).trim();
     if (!text) return; // prevent empty/whitespace-only messages
     if (!roomId || !jamaah) {
       toast.error("Ruang chat belum siap");
@@ -431,9 +458,13 @@ export function JamaahChat() {
     }
     console.log("[JamaahChat] sendText:", { room_id: roomId, content: text, sender: jamaah.nama });
 
-    // Clear input IMMEDIATELY (before async) so user sees it empty
-    const savedInput = input;
+    // Clear input IMMEDIATELY (before async) — state + ref + DOM
+    const savedInput = inputValRef.current;
     setInput("");
+    inputValRef.current = "";
+    if (inputRef.current) {
+      inputRef.current.value = "";
+    }
     setSending(true);
 
     try {
@@ -480,9 +511,19 @@ export function JamaahChat() {
         setMessages(refresh as ChatMessageRow[]);
       }
       toast.success("Pesan terkirim");
+      // Scroll to bottom + refocus
+      isNearBottomRef.current = true;
+      setTimeout(() => scrollToBottom(true), 50);
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
     } catch (err) {
       // Restore input on exception
       setInput(savedInput);
+      inputValRef.current = savedInput;
+      if (inputRef.current) {
+        inputRef.current.value = savedInput;
+      }
       console.error("[JamaahChat] sendText exception:", err);
       toast.error("Terjadi kesalahan", { description: err instanceof Error ? err.message : String(err) });
     } finally {
@@ -581,7 +622,7 @@ export function JamaahChat() {
       ) : (
         <>
           {/* ===== Messages area ===== */}
-          <div ref={scrollRef} className="flex-1 overflow-y-auto bg-muted/30 px-3 py-4 sm:px-4">
+          <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto bg-muted/30 px-3 py-4 sm:px-4">
             {messages.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center gap-3 py-10 text-center">
                 <span className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
@@ -599,6 +640,8 @@ export function JamaahChat() {
                 ))}
               </div>
             )}
+            {/* Bottom anchor for auto-scroll */}
+            <div ref={bottomRef} />
           </div>
 
           {/* ===== Composer ===== */}
@@ -668,8 +711,12 @@ export function JamaahChat() {
 
               {/* Text input */}
               <textarea
+                ref={inputRef}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  inputValRef.current = e.target.value;
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();

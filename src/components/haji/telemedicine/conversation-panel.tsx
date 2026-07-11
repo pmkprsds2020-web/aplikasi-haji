@@ -129,8 +129,29 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
   const [templateOpen, setTemplateOpen] = React.useState(false);
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const bottomRef = React.useRef<HTMLDivElement>(null);
+  const isNearBottomRef = React.useRef(true); // track if user is near bottom
   const typingDebounce = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingNow = React.useRef(false);
+
+  // ===== Smart scroll to bottom =====
+  const scrollToBottom = React.useCallback((smooth: boolean = true) => {
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({
+        behavior: smooth ? "smooth" : "auto",
+        block: "end",
+      });
+    }
+  }, []);
+
+  // ===== Track scroll position: is user near bottom? =====
+  const handleScroll = React.useCallback(() => {
+    if (scrollRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+      // "Near bottom" = within 150px of the bottom
+      isNearBottomRef.current = scrollHeight - scrollTop - clientHeight < 150;
+    }
+  }, []);
 
   // ===== Load room (jamaah + pending requests directly from Supabase) =====
   // Messages come from the `useSupabaseChat` hook (realtime-synced).
@@ -297,12 +318,19 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
     return off;
   }, [onResponse, jamaahId, load]);
 
-  // ===== Auto-scroll to bottom on new message =====
+  // ===== Auto-scroll to bottom on new message (smart: only if user is near bottom) =====
   React.useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (isNearBottomRef.current) {
+      // Use "auto" (instant) for realtime updates to avoid flicker
+      scrollToBottom(false);
     }
-  }, [messages.length]);
+  }, [messages.length, scrollToBottom]);
+
+  // ===== Scroll to bottom when conversation first opens =====
+  React.useEffect(() => {
+    // Initial load: scroll to bottom instantly
+    setTimeout(() => scrollToBottom(false), 100);
+  }, [jamaahId, scrollToBottom]);
 
   // ===== Typing =====
   const handleInputChange = (v: string) => {
@@ -372,6 +400,9 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
       if (inputRef.current) {
         inputRef.current.focus();
       }
+      // Scroll to bottom after sending
+      isNearBottomRef.current = true;
+      setTimeout(() => scrollToBottom(true), 50);
     } else {
       // Restore input on failure so user doesn't lose their message
       setInput(savedInput);
@@ -489,7 +520,7 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
       </header>
 
       {/* ===== Messages ===== */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin bg-muted/30 px-3 py-4 sm:px-6">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto scrollbar-thin bg-muted/30 px-3 py-4 sm:px-6">
         {loading ? (
           <div className="flex h-full items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -514,6 +545,8 @@ export function ConversationPanel({ jamaahId, jamaah: jamaahProp, onBack }: Prop
             ))}
           </div>
         )}
+        {/* Bottom anchor for auto-scroll */}
+        <div ref={bottomRef} />
       </div>
 
       {/* ===== Composer ===== */}
